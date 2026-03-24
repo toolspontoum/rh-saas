@@ -1,0 +1,11 @@
+{
+  "name": "vv-consulting",
+  "private": true,
+  "description": "Raiz do monorepo: script único para subir API + Web em desenvolvimento.",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

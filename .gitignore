@@ -1,0 +1,23 @@
+# Dependências (em qualquer pasta do monorepo)
+node_modules/
+
+# Build / caches
+dist/
+.next/
+out/
+.turbo/
+
+# Environment files
+.env
+.env.*
+!.env.example
+apps/web/.env.local
+apps/api/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
