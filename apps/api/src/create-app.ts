@@ -3,7 +3,16 @@ import express from "express";
 import type { ErrorRequestHandler } from "express";
 
 import { env } from "./config/env.js";
-import { liteRouter } from "./http/routes-lite.js";
+
+/** Carregar em paralelo ao primeiro pedido (não no bundle inicial do createApp) — reduz cold start na Vercel. */
+let liteRouterPromise: Promise<import("express").Router> | null = null;
+
+function getLiteRouter(): Promise<import("express").Router> {
+  if (!liteRouterPromise) {
+    liteRouterPromise = import("./http/routes-lite.js").then((m) => m.liteRouter);
+  }
+  return liteRouterPromise;
+}
 
 let heavyRouterPromise: Promise<import("express").Router> | null = null;
 
@@ -60,7 +69,13 @@ export function createApp(options?: CreateAppOptions): express.Application {
     })
   );
   app.use(express.json({ limit: JSON_BODY_LIMIT_BYTES }));
-  app.use(liteRouter);
+  app.use((req, res, next) => {
+    void getLiteRouter()
+      .then((router) => {
+        router(req, res, next);
+      })
+      .catch(next);
+  });
   app.use((req, res, next) => {
     void getHeavyRouter()
       .then((router) => {

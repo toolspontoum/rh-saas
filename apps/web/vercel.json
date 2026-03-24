@@ -4,6 +4,9 @@
   "functions": {
     "pages/api/[[...path]].ts": {
       "maxDuration": 60
+    },
+    "app/api/**": {
+      "maxDuration": 60
     }
   }
 }

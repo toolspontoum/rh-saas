@@ -61,6 +61,18 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(status).json(body);
     }
 
+    if (req.method === "GET" && segments.length === 4 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantSegment = segments[2] ?? "";
+      const sub = segments[3] ?? "";
+      if (sub === "context" || sub === "companies") {
+        const { runTenantContextGet, runTenantCompaniesListGet } = await import("@vv/api/run-tenant-layout-gets");
+        const auth = headerAuthorization(req);
+        const out =
+          sub === "context" ? await runTenantContextGet(auth, tenantSegment) : await runTenantCompaniesListGet(auth, tenantSegment);
+        return res.status(out.status).json(out.body);
+      }
+    }
+
     if (
       req.method === "GET" &&
       (pathKey === "v1/platform/tenants" ||
