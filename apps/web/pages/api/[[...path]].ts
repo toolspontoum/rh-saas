@@ -49,6 +49,30 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
     const segments = apiPathSegments(req);
     const pathKey = segments.join("/");
 
+    if (req.method === "GET" && segments.length === 2 && segments[0] === "public" && segments[1] === "jobs") {
+      return res.status(403).json({
+        error: "GLOBAL_CATALOG_DISABLED",
+        message: "Listagem global de vagas desativada. Use o link publico do assinante (/vagas/{slug})."
+      });
+    }
+
+    if (req.method === "GET" && segments.length === 3 && segments[0] === "public" && segments[1] === "jobs") {
+      const { runPublicJobsBySegmentGet } = await import("@vv/api/run-public-jobs");
+      const q = req.query;
+      const out = await runPublicJobsBySegmentGet(segments[2] ?? "", {
+        page: typeof q.page === "string" ? q.page : undefined,
+        pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined,
+        companyId: typeof q.companyId === "string" ? q.companyId : undefined
+      });
+      return res.status(out.status).json(out.body);
+    }
+
+    if (req.method === "GET" && segments.length === 4 && segments[0] === "public" && segments[1] === "jobs") {
+      const { runPublicJobByTenantAndIdGet } = await import("@vv/api/run-public-jobs");
+      const out = await runPublicJobByTenantAndIdGet(segments[2] ?? "", segments[3] ?? "");
+      return res.status(out.status).json(out.body);
+    }
+
     if (req.method === "GET" && pathKey === "v1/platform/me") {
       const { runPlatformMeGet } = await import("@vv/api/run-platform-me");
       const { status, body } = await runPlatformMeGet(headerAuthorization(req));
