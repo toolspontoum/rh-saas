@@ -55,6 +55,12 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(status).json(body);
     }
 
+    if (req.method === "GET" && pathKey === "v1/me/tenants") {
+      const { runMyTenantsGet } = await import("@vv/api/run-my-tenants");
+      const { status, body } = await runMyTenantsGet(headerAuthorization(req));
+      return res.status(status).json(body);
+    }
+
     if (
       req.method === "GET" &&
       (pathKey === "v1/platform/tenants" ||

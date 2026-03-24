@@ -6,7 +6,8 @@
   "exports": {
     "./create-app": "./src/create-app.ts",
     "./run-platform-me": "./src/run-platform-me.ts",
-    "./run-platform-admin-gets": "./src/run-platform-admin-gets.ts"
+    "./run-platform-admin-gets": "./src/run-platform-admin-gets.ts",
+    "./run-my-tenants": "./src/run-my-tenants.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
