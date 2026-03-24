@@ -85,6 +85,16 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(status).json(body);
     }
 
+    if (req.method === "GET" && segments.length >= 2 && segments[0] === "v1" && segments[1] === "me") {
+      const q = req.query;
+      const { runMeCandidateGet } = await import("@vv/api/run-tenant-data-gets");
+      const out = await runMeCandidateGet(headerAuthorization(req), segments.slice(2), {
+        page: typeof q.page === "string" ? q.page : undefined,
+        pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined
+      });
+      if (out) return res.status(out.status).json(out.body);
+    }
+
     if (req.method === "GET" && segments.length === 4 && segments[0] === "v1" && segments[1] === "tenants") {
       const tenantSegment = segments[2] ?? "";
       const sub = segments[3] ?? "";
@@ -251,6 +261,63 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const out = await runTenantShiftTemplatesListGet(headerAuthorization(req), tenantSegment, xCompany4);
         return res.status(out.status).json(out.body);
       }
+      if (sub === "standard-document-types") {
+        const { runTenantStandardDocumentsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantStandardDocumentsListGet(headerAuthorization(req), tenantSegment);
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "audit-logs") {
+        const { runTenantAuditLogsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantAuditLogsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            action: typeof q4.action === "string" ? q4.action : undefined,
+            resourceType: typeof q4.resourceType === "string" ? q4.resourceType : undefined,
+            from: typeof q4.from === "string" ? q4.from : undefined,
+            to: typeof q4.to === "string" ? q4.to : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "document-requests") {
+        const { runTenantDocumentRequestsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantDocumentRequestsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            collaboratorName: typeof q4.collaboratorName === "string" ? q4.collaboratorName : undefined,
+            employeeUserId: typeof q4.employeeUserId === "string" ? q4.employeeUserId : undefined,
+            docTab: typeof q4.docTab === "string" ? q4.docTab : undefined,
+            status: typeof q4.status === "string" ? q4.status : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "documents") {
+        const { runTenantDocumentsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantDocumentsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined,
+            contract: typeof q4.contract === "string" ? q4.contract : undefined,
+            collaboratorName: typeof q4.collaboratorName === "string" ? q4.collaboratorName : undefined,
+            mineOnly: typeof q4.mineOnly === "string" ? q4.mineOnly : undefined,
+            employeeUserId: typeof q4.employeeUserId === "string" ? q4.employeeUserId : undefined,
+            docTab: typeof q4.docTab === "string" ? q4.docTab : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (req.method === "GET" && segments.length === 5 && segments[0] === "v1" && segments[1] === "tenants") {
@@ -313,6 +380,21 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       if (a === "oncall-shifts") {
         const { runTenantOncallShiftByIdGet } = await import("@vv/api/run-tenant-data-gets");
         const out = await runTenantOncallShiftByIdGet(headerAuthorization(req), tenantSegment, b, xCompany5);
+        return res.status(out.status).json(out.body);
+      }
+    }
+
+    if (req.method === "GET" && segments.length === 6 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantSegment = segments[2] ?? "";
+      const a = segments[3] ?? "";
+      const b = segments[4] ?? "";
+      const c = segments[5] ?? "";
+      const companyRaw6 = req.headers["x-tenant-company-id"];
+      const xCompany6 =
+        typeof companyRaw6 === "string" ? companyRaw6 : Array.isArray(companyRaw6) ? companyRaw6[0] : undefined;
+      if (a === "documents" && c === "open") {
+        const { runTenantDocumentOpenGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantDocumentOpenGet(headerAuthorization(req), tenantSegment, b, xCompany6);
         return res.status(out.status).json(out.body);
       }
     }

@@ -1,6 +1,9 @@
+import { auditLogsHandlers } from "./modules/audit-logs/index.js";
+import { candidatePortalHandlers } from "./modules/candidate-portal/index.js";
 import { toHttpError } from "./http/error-handler.js";
 import { documentsPayslipsHandlers } from "./modules/documents-payslips/index.js";
 import { recruitmentHandlers } from "./modules/recruitment/index.js";
+import { standardDocumentsHandlers } from "./modules/standard-documents/index.js";
 import { workforceHandlers } from "./modules/workforce/index.js";
 import { getBearerSession } from "./session-from-bearer.js";
 import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
@@ -444,6 +447,205 @@ export async function runTenantTimeReportsClosuresListGet(
       pageSize: query.pageSize
     });
     return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/standard-document-types */
+export async function runTenantStandardDocumentsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  try {
+    const result = await standardDocumentsHandlers.listTenantMerged({
+      tenantId,
+      userId: s.userId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/audit-logs */
+export async function runTenantAuditLogsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  query: { action?: string; resourceType?: string; from?: string; to?: string; page?: string; pageSize?: string },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await auditLogsHandlers.list({
+      userId: s.userId,
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      action: query.action,
+      resourceType: query.resourceType,
+      from: query.from,
+      to: query.to,
+      page: query.page,
+      pageSize: query.pageSize
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/document-requests */
+export async function runTenantDocumentRequestsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  query: { collaboratorName?: string; employeeUserId?: string; docTab?: string; status?: string; page?: string; pageSize?: string },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await documentsPayslipsHandlers.listDocumentRequests({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      collaboratorName: query.collaboratorName,
+      employeeUserId: query.employeeUserId,
+      docTab: query.docTab,
+      status: query.status,
+      page: query.page,
+      pageSize: query.pageSize
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/documents */
+export async function runTenantDocumentsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  query: { page?: string; pageSize?: string; contract?: string; collaboratorName?: string; mineOnly?: string; employeeUserId?: string; docTab?: string },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await documentsPayslipsHandlers.listDocuments({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      page: query.page,
+      pageSize: query.pageSize,
+      contract: query.contract,
+      collaboratorName: query.collaboratorName,
+      mineOnly: query.mineOnly,
+      employeeUserId: query.employeeUserId,
+      docTab: query.docTab
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/documents/:documentId/open */
+export async function runTenantDocumentOpenGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  documentId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await documentsPayslipsHandlers.openDocument({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      documentId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/me/* usados por páginas de candidato */
+export async function runMeCandidateGet(
+  authorizationHeader: string | null | undefined,
+  segments: string[],
+  query: Record<string, string | undefined>
+): Promise<JsonHttpResult | null> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  try {
+    if (segments.length === 1 && segments[0] === "candidate-profile") {
+      const result = await candidatePortalHandlers.getProfile(s.userId);
+      return { status: 200, body: result };
+    }
+    if (segments.length === 1 && segments[0] === "job-applications") {
+      const result = await candidatePortalHandlers.listMyApplications({
+        userId: s.userId,
+        page: query.page,
+        pageSize: query.pageSize
+      });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "employers") {
+      const result = await candidatePortalHandlers.listJobEmployers({ userId: s.userId });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 2 && segments[0] === "jobs" && segments[1] === "suggested") {
+      const result = await candidatePortalHandlers.listSuggestedJobs({
+        userId: s.userId,
+        page: query.page,
+        pageSize: query.pageSize
+      });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 3 && segments[0] === "jobs" && segments[1] === "tenant") {
+      const result = await candidatePortalHandlers.listJobsForTenant({
+        userId: s.userId,
+        tenantId: segments[2],
+        page: query.page,
+        pageSize: query.pageSize
+      });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 3 && segments[0] === "jobs" && segments[1] === "details") {
+      const result = await candidatePortalHandlers.getPublicJobById({ jobId: segments[2] });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 3 && segments[0] === "jobs" && segments[2] === "application") {
+      const result = await candidatePortalHandlers.getMyApplicationByJob({ userId: s.userId, jobId: segments[1] });
+      return { status: 200, body: result };
+    }
+    if (segments.length === 3 && segments[0] === "jobs" && segments[2] === "application-documents") {
+      const result = await candidatePortalHandlers.getApplicantDocumentPresenceForJob({
+        userId: s.userId,
+        jobId: segments[1]
+      });
+      return { status: 200, body: result };
+    }
+    return null;
   } catch (error) {
     const parsed = toHttpError(error);
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
