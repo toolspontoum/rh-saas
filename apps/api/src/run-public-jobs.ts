@@ -1,9 +1,11 @@
 import { toHttpError } from "./http/error-handler.js";
-import { candidatePortalHandlers } from "./modules/candidate-portal/index.js";
 import { isUuid } from "./modules/platform/platform.slugify.js";
 import { recruitmentHandlers } from "./modules/recruitment/index.js";
+import { supabaseAdmin } from "./lib/supabase.js";
+import { CandidatePortalRepository } from "./modules/candidate-portal/candidate-portal.repository.js";
 
 export type JsonHttpResult = { status: number; body: unknown };
+const candidatePortalRepository = new CandidatePortalRepository(supabaseAdmin);
 
 /**
  * GET /public/jobs/:segment
@@ -16,7 +18,8 @@ export async function runPublicJobsBySegmentGet(
 ): Promise<JsonHttpResult> {
   try {
     if (isUuid(segment)) {
-      const result = await candidatePortalHandlers.getPublicJobById({ jobId: segment });
+      const result = await candidatePortalRepository.getPublishedJobById(segment);
+      if (!result) return { status: 404, body: { error: "JOB_NOT_FOUND", message: "Vaga nao encontrada." } };
       return { status: 200, body: result };
     }
     const result = await recruitmentHandlers.listPublicJobs({
@@ -35,10 +38,8 @@ export async function runPublicJobsBySegmentGet(
 /** GET /public/jobs/:tenantSlug/:jobId */
 export async function runPublicJobByTenantAndIdGet(tenantSlug: string, jobId: string): Promise<JsonHttpResult> {
   try {
-    const result = await candidatePortalHandlers.getPublicJobByTenantAndId({
-      tenantSlug,
-      jobId
-    });
+    const result = await candidatePortalRepository.getPublishedJobByTenantAndId(tenantSlug, jobId);
+    if (!result) return { status: 404, body: { error: "JOB_NOT_FOUND", message: "Vaga nao encontrada." } };
     return { status: 200, body: result };
   } catch (error) {
     const parsed = toHttpError(error);
