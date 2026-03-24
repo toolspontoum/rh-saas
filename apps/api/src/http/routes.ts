@@ -25,21 +25,6 @@ const resumeProcessAiUpload = multer({
 
 export const apiRouter = Router();
 
-apiRouter.get("/health", (_req, res) => {
-  return res.status(200).json({ ok: true });
-});
-
-apiRouter.get("/v1/platform/me", requireAuth, async (req, res) => {
-  try {
-    const auth = (req as AuthenticatedRequest).auth;
-    const result = await platformHandlers.me(auth);
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
 apiRouter.get("/v1/platform/tenants", requirePlatformAdmin, async (_req, res) => {
   try {
     const result = await platformHandlers.listTenants();
@@ -508,18 +493,6 @@ apiRouter.get("/v1/me/jobs/suggested", requireAuth, async (req, res) => {
       userId: (req as AuthenticatedRequest).auth.userId,
       page,
       pageSize
-    });
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.get("/v1/me/tenants", requireAuth, async (req, res) => {
-  try {
-    const result = await coreAuthTenantHandlers.listMyTenants({
-      userId: (req as AuthenticatedRequest).auth.userId
     });
     return res.status(200).json(result);
   } catch (error) {

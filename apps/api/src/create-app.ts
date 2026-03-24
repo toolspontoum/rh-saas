@@ -3,7 +3,16 @@ import express from "express";
 import type { ErrorRequestHandler } from "express";
 
 import { env } from "./config/env.js";
-import { apiRouter } from "./http/routes.js";
+import { liteRouter } from "./http/routes-lite.js";
+
+let heavyRouterPromise: Promise<import("express").Router> | null = null;
+
+function getHeavyRouter(): Promise<import("express").Router> {
+  if (!heavyRouterPromise) {
+    heavyRouterPromise = import("./http/routes.js").then((m) => m.apiRouter);
+  }
+  return heavyRouterPromise;
+}
 
 /** Base64 aumenta o payload ~4/3; margem para JSON com metadados da candidatura rápida. */
 const JSON_BODY_LIMIT_BYTES = Math.ceil(env.MAX_PDF_UPLOAD_SIZE_BYTES * 1.42);
@@ -51,7 +60,14 @@ export function createApp(options?: CreateAppOptions): express.Application {
     })
   );
   app.use(express.json({ limit: JSON_BODY_LIMIT_BYTES }));
-  app.use(apiRouter);
+  app.use(liteRouter);
+  app.use((req, res, next) => {
+    void getHeavyRouter()
+      .then((router) => {
+        router(req, res, next);
+      })
+      .catch(next);
+  });
   app.use(handlePayloadTooLarge);
 
   return app;
