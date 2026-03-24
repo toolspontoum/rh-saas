@@ -3,6 +3,19 @@ import serverless from "serverless-http";
 
 type ServerlessHandler = ReturnType<typeof serverless>;
 
+function apiPathSegments(req: NextApiRequest): string[] {
+  const p = req.query.path;
+  if (p == null) return [];
+  return Array.isArray(p) ? p : [p];
+}
+
+function headerAuthorization(req: NextApiRequest): string | null {
+  const raw = req.headers.authorization;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && raw[0]) return raw[0];
+  return null;
+}
+
 let cached: ServerlessHandler | null = null;
 let initError: Error | null = null;
 
@@ -22,6 +35,17 @@ async function getHandler(): Promise<ServerlessHandler> {
 
 export default async function api(req: NextApiRequest, res: NextApiResponse) {
   try {
+    /**
+     * Em alguns deploys o pedido cai aqui (nxtPpath nos logs) em vez do App Router.
+     * Evitar `import(create-app)` + Express no login — era a causa típica de bloqueio até maxDuration (ex.: 60s).
+     */
+    const segments = apiPathSegments(req);
+    if (req.method === "GET" && segments.join("/") === "v1/platform/me") {
+      const { runPlatformMeGet } = await import("@vv/api/run-platform-me");
+      const { status, body } = await runPlatformMeGet(headerAuthorization(req));
+      return res.status(status).json(body);
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {

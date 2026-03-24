@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./create-app": "./src/create-app.ts"
+    "./create-app": "./src/create-app.ts",
+    "./run-platform-me": "./src/run-platform-me.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

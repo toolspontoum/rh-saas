@@ -1,7 +1,10 @@
 import { config } from "dotenv";
 import { z } from "zod";
 
-config();
+// Na Vercel as variáveis vêm do painel; evitar ler disco e logs do dotenv.
+if (!process.env.VERCEL) {
+  config();
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

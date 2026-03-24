@@ -20,6 +20,15 @@ type SupabaseLikeError = {
 };
 
 const knownErrors = new Map<string, ApiErrorShape>([
+  [
+    "PLATFORM_ADMIN_LOOKUP_TIMEOUT",
+    {
+      status: 504,
+      code: "GATEWAY_TIMEOUT",
+      message:
+        "Consulta de permissões excedeu o tempo limite. Verifique SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY na Vercel e a conectividade com o Supabase."
+    }
+  ],
   ["USER_NOT_IN_TENANT", { status: 403, code: "FORBIDDEN", message: "Usuario sem acesso a este assinante." }],
   [
     "FEATURE_NOT_ENABLED",
