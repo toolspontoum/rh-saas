@@ -55,4 +55,13 @@ const rawEnv = {
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 };
 
-export const env: AppEnv = envSchema.parse(rawEnv);
+const parsedEnv = envSchema.safeParse(rawEnv);
+if (!parsedEnv.success) {
+  const detail = parsedEnv.error.issues.map((i) => `${i.path.join(".") || "root"}: ${i.message}`).join("; ");
+  console.error("[env] Falha na validação:", detail);
+  throw new Error(
+    `[env] Variáveis em falta ou inválidas na API (Vercel: Project → Settings → Environment Variables). ${detail}`
+  );
+}
+
+export const env: AppEnv = parsedEnv.data;

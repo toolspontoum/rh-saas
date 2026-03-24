@@ -19,23 +19,31 @@ function extractBearerToken(headerValue: string | undefined): string | null {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const token = extractBearerToken(req.header("authorization"));
-  if (!token) {
-    return res.status(401).json({ error: "UNAUTHORIZED", message: "Missing bearer token." });
+  try {
+    const token = extractBearerToken(req.header("authorization"));
+    if (!token) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Missing bearer token." });
+    }
+
+    const { data, error } = await supabaseAnon.auth.getUser(token);
+    if (error || !data.user?.id) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid or expired token." });
+    }
+
+    (req as AuthenticatedRequest).auth = {
+      userId: data.user.id,
+      token,
+      email: data.user.email ?? null
+    };
+
+    return next();
+  } catch (err) {
+    console.error("[requireAuth]", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Falha ao validar sessão. Verifique variáveis SUPABASE_* na Vercel e os logs da função."
+    });
   }
-
-  const { data, error } = await supabaseAnon.auth.getUser(token);
-  if (error || !data.user?.id) {
-    return res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid or expired token." });
-  }
-
-  (req as AuthenticatedRequest).auth = {
-    userId: data.user.id,
-    token,
-    email: data.user.email ?? null
-  };
-
-  return next();
 }
 
 export async function requirePlatformAdmin(req: Request, res: Response, next: NextFunction) {
