@@ -60,7 +60,7 @@ export default function RecruitmentJobsPage() {
   }, [tenantId, titleFilter]);
 
   useEffect(() => {
-    apiFetch<Paginated<CandidateRow>>(`/v1/tenants/${tenantId}/candidates?page=1&pageSize=200`)
+    apiFetch<Paginated<CandidateRow>>(`/v1/tenants/${tenantId}/candidates?page=1&pageSize=100`)
       .then((d) => setCandidates(d.items ?? []))
       .catch(() => setCandidates([]));
   }, [tenantId]);

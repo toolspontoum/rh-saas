@@ -85,6 +85,129 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         }, xCompany);
         return res.status(out.status).json(out.body);
       }
+      const companyRaw4 = req.headers["x-tenant-company-id"];
+      const xCompany4 =
+        typeof companyRaw4 === "string" ? companyRaw4 : Array.isArray(companyRaw4) ? companyRaw4[0] : undefined;
+      const q4 = req.query;
+      if (sub === "employee-profile") {
+        const {
+          runTenantEmployeeProfileGet
+        } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantEmployeeProfileGet(headerAuthorization(req), tenantSegment, {
+          targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined
+        }, xCompany4);
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "jobs") {
+        const { runTenantJobsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantJobsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            status: typeof q4.status === "string" ? q4.status : undefined,
+            title: typeof q4.title === "string" ? q4.title : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "candidates") {
+        const { runTenantCandidatesListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantCandidatesListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            candidateName: typeof q4.candidateName === "string" ? q4.candidateName : undefined,
+            contract: typeof q4.contract === "string" ? q4.contract : undefined,
+            isActive: typeof q4.isActive === "string" ? q4.isActive : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "time-entries") {
+        const { runTenantTimeEntriesListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantTimeEntriesListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "time-adjustments") {
+        const { runTenantTimeAdjustmentsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantTimeAdjustmentsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined,
+            status: typeof q4.status === "string" ? q4.status : undefined,
+            mineOnly: typeof q4.mineOnly === "string" ? q4.mineOnly : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "work-rules") {
+        const { runTenantWorkRulesGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantWorkRulesGet(headerAuthorization(req), tenantSegment, xCompany4);
+        return res.status(out.status).json(out.body);
+      }
+    }
+
+    if (req.method === "GET" && segments.length === 5 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantSegment = segments[2] ?? "";
+      const a = segments[3] ?? "";
+      const b = segments[4] ?? "";
+      const companyRaw5 = req.headers["x-tenant-company-id"];
+      const xCompany5 =
+        typeof companyRaw5 === "string" ? companyRaw5 : Array.isArray(companyRaw5) ? companyRaw5[0] : undefined;
+      const q5 = req.query;
+      if (a === "recruitment" && b === "applications") {
+        const { runTenantRecruitmentApplicationsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantRecruitmentApplicationsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            candidateName: typeof q5.candidateName === "string" ? q5.candidateName : undefined,
+            candidateEmail: typeof q5.candidateEmail === "string" ? q5.candidateEmail : undefined,
+            candidateCpf: typeof q5.candidateCpf === "string" ? q5.candidateCpf : undefined,
+            jobId: typeof q5.jobId === "string" ? q5.jobId : undefined,
+            status: typeof q5.status === "string" ? q5.status : undefined,
+            createdFrom: typeof q5.createdFrom === "string" ? q5.createdFrom : undefined,
+            createdTo: typeof q5.createdTo === "string" ? q5.createdTo : undefined,
+            page: typeof q5.page === "string" ? q5.page : undefined,
+            pageSize: typeof q5.pageSize === "string" ? q5.pageSize : undefined
+          },
+          xCompany5
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (a === "time-reports" && b === "summary") {
+        const { runTenantTimeReportsSummaryGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantTimeReportsSummaryGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q5.targetUserId === "string" ? q5.targetUserId : undefined,
+            from: typeof q5.from === "string" ? q5.from : undefined,
+            to: typeof q5.to === "string" ? q5.to : undefined
+          },
+          xCompany5
+        );
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (

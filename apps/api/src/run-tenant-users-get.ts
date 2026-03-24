@@ -1,52 +1,9 @@
 import { toHttpError } from "./http/error-handler.js";
-import { supabaseAdmin } from "./lib/supabase.js";
-import { isUuid } from "./modules/platform/platform.slugify.js";
 import { tenantUsersHandlers } from "./modules/tenant-users/index.js";
 import { getBearerSession } from "./session-from-bearer.js";
+import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
 
 export type JsonHttpResult = { status: number; body: unknown };
-
-async function resolveCompanyScope(
-  tenantId: string,
-  xTenantCompanyId: string | null | undefined
-): Promise<
-  | { ok: true; companyId: string | null }
-  | { ok: false; status: number; body: Record<string, unknown> }
-> {
-  const raw = xTenantCompanyId?.trim() ?? "";
-  if (!raw) return { ok: true, companyId: null };
-  if (!isUuid(raw)) {
-    return {
-      ok: false,
-      status: 400,
-      body: { error: "INVALID_COMPANY_ID", message: "Identificador de empresa/projeto invalido." }
-    };
-  }
-  const { data, error } = await supabaseAdmin
-    .from("tenant_companies")
-    .select("id")
-    .eq("id", raw)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (error) {
-    return {
-      ok: false,
-      status: 500,
-      body: { error: "INTERNAL_ERROR", message: "Falha ao validar empresa/projeto." }
-    };
-  }
-  if (!data?.id) {
-    return {
-      ok: false,
-      status: 403,
-      body: {
-        error: "COMPANY_NOT_IN_TENANT",
-        message: "Empresa/projeto nao pertence a este assinante."
-      }
-    };
-  }
-  return { ok: true, companyId: raw };
-}
 
 export type TenantUsersListQuery = {
   status?: string;
@@ -65,7 +22,7 @@ export async function runTenantUsersListGet(
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
 
-  const scope = await resolveCompanyScope(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
   if (!scope.ok) return { status: scope.status, body: scope.body };
 
   const statusFilter =
