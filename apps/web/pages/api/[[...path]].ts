@@ -71,6 +71,20 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           sub === "context" ? await runTenantContextGet(auth, tenantSegment) : await runTenantCompaniesListGet(auth, tenantSegment);
         return res.status(out.status).json(out.body);
       }
+      if (sub === "users") {
+        const { runTenantUsersListGet } = await import("@vv/api/run-tenant-users-get");
+        const q = req.query;
+        const companyRaw = req.headers["x-tenant-company-id"];
+        const xCompany =
+          typeof companyRaw === "string" ? companyRaw : Array.isArray(companyRaw) ? companyRaw[0] : undefined;
+        const out = await runTenantUsersListGet(headerAuthorization(req), tenantSegment, {
+          status: typeof q.status === "string" ? q.status : undefined,
+          search: typeof q.search === "string" ? q.search : undefined,
+          page: typeof q.page === "string" ? q.page : undefined,
+          pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined
+        }, xCompany);
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (

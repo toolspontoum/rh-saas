@@ -8,7 +8,8 @@
     "./run-platform-me": "./src/run-platform-me.ts",
     "./run-platform-admin-gets": "./src/run-platform-admin-gets.ts",
     "./run-my-tenants": "./src/run-my-tenants.ts",
-    "./run-tenant-layout-gets": "./src/run-tenant-layout-gets.ts"
+    "./run-tenant-layout-gets": "./src/run-tenant-layout-gets.ts",
+    "./run-tenant-users-get": "./src/run-tenant-users-get.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
