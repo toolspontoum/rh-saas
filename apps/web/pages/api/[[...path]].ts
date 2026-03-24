@@ -188,6 +188,69 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const out = await runTenantWorkRulesGet(headerAuthorization(req), tenantSegment, xCompany4);
         return res.status(out.status).json(out.body);
       }
+      if (sub === "notices") {
+        const { runTenantNoticesListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantNoticesListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            onlyActive: typeof q4.onlyActive === "string" ? q4.onlyActive : undefined,
+            onlyArchived: typeof q4.onlyArchived === "string" ? q4.onlyArchived : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "payslips") {
+        const { runTenantPayslipsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantPayslipsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined,
+            contract: typeof q4.contract === "string" ? q4.contract : undefined,
+            collaboratorName: typeof q4.collaboratorName === "string" ? q4.collaboratorName : undefined,
+            collaboratorEmail: typeof q4.collaboratorEmail === "string" ? q4.collaboratorEmail : undefined,
+            collaboratorCpf: typeof q4.collaboratorCpf === "string" ? q4.collaboratorCpf : undefined,
+            referenceMonth: typeof q4.referenceMonth === "string" ? q4.referenceMonth : undefined,
+            mineOnly: typeof q4.mineOnly === "string" ? q4.mineOnly : undefined,
+            employeeUserId: typeof q4.employeeUserId === "string" ? q4.employeeUserId : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "oncall-shifts") {
+        const { runTenantOncallShiftsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantOncallShiftsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined,
+            from: typeof q4.from === "string" ? q4.from : undefined,
+            to: typeof q4.to === "string" ? q4.to : undefined,
+            name: typeof q4.name === "string" ? q4.name : undefined,
+            email: typeof q4.email === "string" ? q4.email : undefined,
+            cpf: typeof q4.cpf === "string" ? q4.cpf : undefined,
+            department: typeof q4.department === "string" ? q4.department : undefined,
+            positionTitle: typeof q4.positionTitle === "string" ? q4.positionTitle : undefined,
+            contractType: typeof q4.contractType === "string" ? q4.contractType : undefined,
+            status: typeof q4.status === "string" ? q4.status : undefined,
+            tag: typeof q4.tag === "string" ? q4.tag : undefined,
+            mineOnly: typeof q4.mineOnly === "string" ? q4.mineOnly : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "shift-templates") {
+        const { runTenantShiftTemplatesListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantShiftTemplatesListGet(headerAuthorization(req), tenantSegment, xCompany4);
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (req.method === "GET" && segments.length === 5 && segments[0] === "v1" && segments[1] === "tenants") {
@@ -230,6 +293,26 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           },
           xCompany5
         );
+        return res.status(out.status).json(out.body);
+      }
+      if (a === "time-reports" && b === "closures") {
+        const { runTenantTimeReportsClosuresListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantTimeReportsClosuresListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q5.targetUserId === "string" ? q5.targetUserId : undefined,
+            referenceMonth: typeof q5.referenceMonth === "string" ? q5.referenceMonth : undefined,
+            page: typeof q5.page === "string" ? q5.page : undefined,
+            pageSize: typeof q5.pageSize === "string" ? q5.pageSize : undefined
+          },
+          xCompany5
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (a === "oncall-shifts") {
+        const { runTenantOncallShiftByIdGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantOncallShiftByIdGet(headerAuthorization(req), tenantSegment, b, xCompany5);
         return res.status(out.status).json(out.body);
       }
     }
