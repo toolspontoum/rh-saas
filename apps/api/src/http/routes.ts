@@ -7,14 +7,13 @@ import { auditLogsHandlers } from "../modules/audit-logs/index.js";
 import { candidatePortalHandlers } from "../modules/candidate-portal/index.js";
 import { coreAuthTenantHandlers } from "../modules/core-auth-tenant/index.js";
 import { documentsPayslipsHandlers } from "../modules/documents-payslips/index.js";
-import { platformHandlers } from "../modules/platform/index.js";
 import { isUuid } from "../modules/platform/platform.slugify.js";
 import { recruitmentHandlers } from "../modules/recruitment/index.js";
 import { standardDocumentsHandlers } from "../modules/standard-documents/index.js";
 import { tenantCompaniesHandlers } from "../modules/tenant-companies/index.js";
 import { tenantUsersHandlers } from "../modules/tenant-users/index.js";
 import { workforceHandlers } from "../modules/workforce/index.js";
-import { requireAuth, requirePlatformAdmin, type AuthenticatedRequest } from "./auth.js";
+import { requireAuth, type AuthenticatedRequest } from "./auth.js";
 import { toHttpError } from "./error-handler.js";
 import { getTenantCompanyId, resolveTenantCompanyScope } from "./tenant-company-scope.middleware.js";
 
@@ -24,123 +23,6 @@ const resumeProcessAiUpload = multer({
 });
 
 export const apiRouter = Router();
-
-apiRouter.get("/v1/platform/tenants", requirePlatformAdmin, async (_req, res) => {
-  try {
-    const result = await platformHandlers.listTenants();
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.post("/v1/platform/tenants", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await platformHandlers.createTenant(req.body);
-    return res.status(201).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.post("/v1/platform/tenants/:tenantId/grant-admin", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await platformHandlers.grantAdminAccess(
-      { tenantId: req.params.tenantId },
-      (req as AuthenticatedRequest).auth
-    );
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.get("/v1/platform/superadmins", requirePlatformAdmin, async (_req, res) => {
-  try {
-    const result = await platformHandlers.listSuperadmins();
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.post("/v1/platform/superadmins", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await platformHandlers.addSuperadmin(req.body, (req as AuthenticatedRequest).auth);
-    return res.status(201).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.get("/v1/platform/ai-settings", requirePlatformAdmin, async (_req, res) => {
-  try {
-    const result = await platformHandlers.getAiSettings();
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.patch("/v1/platform/ai-settings", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await platformHandlers.patchAiSettings(req.body);
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.patch("/v1/platform/tenants/:tenantId/ai-provider", requirePlatformAdmin, async (req, res) => {
-  try {
-    const tenantId = String(req.params.tenantId ?? "");
-    const result = await platformHandlers.patchTenantAiProvider(tenantId, req.body);
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.get("/v1/platform/standard-document-types", requirePlatformAdmin, async (_req, res) => {
-  try {
-    const result = await standardDocumentsHandlers.listPlatformTypes();
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.post("/v1/platform/standard-document-types", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await standardDocumentsHandlers.createPlatformType(req.body);
-    return res.status(201).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
-
-apiRouter.patch("/v1/platform/standard-document-types/:id", requirePlatformAdmin, async (req, res) => {
-  try {
-    const result = await standardDocumentsHandlers.updatePlatformType({
-      id: req.params.id,
-      ...req.body
-    });
-    return res.status(200).json(result);
-  } catch (error) {
-    const parsed = toHttpError(error);
-    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
-  }
-});
 
 apiRouter.get("/public/jobs", async (_req, res) => {
   return res.status(403).json({
