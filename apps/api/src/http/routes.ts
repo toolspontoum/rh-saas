@@ -399,9 +399,11 @@ apiRouter.use("/v1/tenants/:tenantId", resolveTenantCompanyScope);
 
 apiRouter.get("/v1/tenants/:tenantId/context", requireAuth, async (req, res) => {
   try {
+    const auth = (req as AuthenticatedRequest).auth;
     const result = await coreAuthTenantHandlers.getContext({
-      userId: (req as AuthenticatedRequest).auth.userId,
-      tenantId: req.params.tenantId
+      userId: auth.userId,
+      tenantId: req.params.tenantId,
+      email: auth.email
     });
     return res.status(200).json(result);
   } catch (error) {

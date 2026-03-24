@@ -34,8 +34,10 @@ liteRouter.get("/v1/platform/me", requireAuth, async (req, res) => {
 
 liteRouter.get("/v1/me/tenants", requireAuth, async (req, res) => {
   try {
+    const auth = (req as AuthenticatedRequest).auth;
     const result = await coreAuthTenantHandlers.listMyTenants({
-      userId: (req as AuthenticatedRequest).auth.userId
+      userId: auth.userId,
+      email: auth.email
     });
     return res.status(200).json(result);
   } catch (error) {

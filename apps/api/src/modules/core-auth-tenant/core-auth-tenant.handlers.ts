@@ -3,12 +3,15 @@ import { z } from "zod";
 import { CoreAuthTenantService } from "./core-auth-tenant.service.js";
 
 const listTenantsInputSchema = z.object({
-  userId: z.string().uuid()
+  userId: z.string().uuid(),
+  /** Usado para reconhecer superadmin de plataforma (lista todos os assinantes como admin). */
+  email: z.union([z.string().email(), z.null()]).optional()
 });
 
 const getTenantContextInputSchema = z.object({
   userId: z.string().uuid(),
-  tenantId: z.string().uuid()
+  tenantId: z.string().uuid(),
+  email: z.union([z.string().email(), z.null()]).optional()
 });
 
 const assertFeatureEnabledInputSchema = z.object({
@@ -28,12 +31,12 @@ export class CoreAuthTenantHandlers {
 
   async listMyTenants(input: unknown) {
     const payload = listTenantsInputSchema.parse(input);
-    return this.service.listTenantsForUser(payload.userId);
+    return this.service.listTenantsForUser(payload.userId, payload.email ?? null);
   }
 
   async getContext(input: unknown) {
     const payload = getTenantContextInputSchema.parse(input);
-    return this.service.getTenantContext(payload.userId, payload.tenantId);
+    return this.service.getTenantContext(payload.userId, payload.tenantId, payload.email ?? null);
   }
 
   async validateFeature(input: unknown) {
