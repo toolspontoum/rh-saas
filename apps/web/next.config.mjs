@@ -15,7 +15,6 @@ const nextConfig = {
   serverExternalPackages: [
     "@napi-rs/canvas",
     "pdf-parse",
-    "pdfjs-dist",
     "multer",
     "express",
     "serverless-http"
@@ -40,7 +39,6 @@ const nextConfig = {
           request &&
           (request.startsWith("@napi-rs/canvas") ||
             request === "canvas" ||
-            request.includes("pdfjs-dist") ||
             request === "pdf-parse")
         ) {
           return callback(null, `commonjs ${request}`);

@@ -2,11 +2,20 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createCanvas } from "@napi-rs/canvas";
-import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 
+type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+
+let pdfModPromise: Promise<PdfJs> | null = null;
 let workerConfigured = false;
 
-function ensurePdfWorker(): void {
+function loadPdfJs(): Promise<PdfJs> {
+  if (!pdfModPromise) {
+    pdfModPromise = import("pdfjs-dist/legacy/build/pdf.mjs");
+  }
+  return pdfModPromise;
+}
+
+async function ensurePdfWorker(GlobalWorkerOptions: PdfJs["GlobalWorkerOptions"]): Promise<void> {
   if (workerConfigured) return;
   const workerPath = path.join(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs");
   GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
@@ -18,10 +27,11 @@ export async function renderPdfPagesToPngBuffers(
   buffer: Buffer,
   options: { maxPages?: number; maxLongEdgePx?: number } = {}
 ): Promise<Buffer[]> {
+  const { getDocument, GlobalWorkerOptions } = await loadPdfJs();
+  await ensurePdfWorker(GlobalWorkerOptions);
+
   const maxPages = options.maxPages ?? 4;
   const maxLongEdge = options.maxLongEdgePx ?? 1536;
-
-  ensurePdfWorker();
 
   const loadingTask = getDocument({
     data: new Uint8Array(buffer),
