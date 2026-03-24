@@ -23,6 +23,13 @@ const nextConfig = {
   // Pacote @vv/api usa imports ESM com sufixo .js apontando para ficheiros .ts (NodeNext).
   // Módulos nativos (.node) não podem ser empacotados pelo webpack.
   webpack: (config, { isServer }) => {
+    // Na Vercel só existe npm install em apps/web; imports em ../api resolvem node_modules
+    // a partir de apps/api (vazio). Priorizar apps/web/node_modules.
+    const webNM = path.resolve(__dirname, "node_modules");
+    config.resolve.modules = [
+      webNM,
+      ...(Array.isArray(config.resolve.modules) ? config.resolve.modules : ["node_modules"])
+    ];
     config.resolve.extensionAlias = {
       ".js": [".ts", ".tsx", ".js"],
       ".mjs": [".mts", ".mjs"]
