@@ -76,6 +76,21 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(out.status).json(out.body);
     }
 
+    if (req.method === "POST") {
+      const s = segments;
+      if (
+        s.length === 5 &&
+        s[0] === "v1" &&
+        s[1] === "platform" &&
+        s[2] === "tenants" &&
+        s[4] === "grant-admin"
+      ) {
+        const { runPlatformGrantAdminPost } = await import("@vv/api/run-platform-admin-gets");
+        const { status, body } = await runPlatformGrantAdminPost(headerAuthorization(req), s[3] ?? "");
+        return res.status(status).json(body);
+      }
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {

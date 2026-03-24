@@ -32,3 +32,24 @@ export function runPlatformSuperadminsGet(authorizationHeader: string | null | u
 export function runPlatformAiSettingsGet(authorizationHeader: string | null | undefined): Promise<PlatformJsonHttpResult> {
   return withPlatformAdmin(authorizationHeader, () => platformHandlers.getAiSettings());
 }
+
+/** POST /v1/platform/tenants/:tenantId/grant-admin — “Entrar como admin” no superadmin. */
+export async function runPlatformGrantAdminPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string
+): Promise<PlatformJsonHttpResult> {
+  const gate = await ensurePlatformAdminBearer(authorizationHeader);
+  if (!gate.ok) {
+    return { status: gate.status, body: gate.body };
+  }
+  try {
+    const result = await platformHandlers.grantAdminAccess(
+      { tenantId },
+      { userId: gate.userId, token: gate.token, email: gate.email }
+    );
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
