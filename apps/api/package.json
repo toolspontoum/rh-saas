@@ -1,8 +1,11 @@
 {
-  "name": "vv-consulting-api",
+  "name": "@vv/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./create-app": "./src/create-app.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",

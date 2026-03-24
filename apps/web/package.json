@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@vv/api": "file:../api",
     "dompurify": "^3.3.1",
     "estados-cidades": "^4.1.0",
     "lucide-react": "^0.564.0",
@@ -18,7 +19,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-easy-crop": "^5.5.6",
-    "react-quill-new": "^3.8.3"
+    "react-quill-new": "^3.8.3",
+    "serverless-http": "^3.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

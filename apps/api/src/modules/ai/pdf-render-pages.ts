@@ -42,7 +42,7 @@ export async function renderPdfPagesToPngBuffers(
     const canvas = createCanvas(w, h);
     const ctx = canvas.getContext("2d");
     const renderTask = page.render({
-      canvas,
+      canvas: canvas as never,
       // pdf.js espera CanvasRenderingContext2D; @napi-rs/canvas é compatível em runtime
       canvasContext: ctx as never,
       viewport

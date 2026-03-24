@@ -22,7 +22,7 @@ import { MAX_PDF_UPLOAD_BYTES } from "../../../../lib/upload-limits";
 export default function CandidateJobDetailPage() {
   const params = useParams<{ jobId: string }>();
   const router = useRouter();
-  const jobId = params.jobId;
+  const jobId = params?.jobId ?? "";
 
   const [job, setJob] = useState<PublicJob | null>(null);
   const [coverLetter, setCoverLetter] = useState("");
@@ -48,6 +48,7 @@ export default function CandidateJobDetailPage() {
   const [docFiles, setDocFiles] = useState<Record<string, File | null>>({});
 
   useEffect(() => {
+    if (!jobId) return;
     setLoading(true);
     setError(null);
 
