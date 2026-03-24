@@ -18,19 +18,26 @@ function headerAuthorization(req: NextApiRequest): string | null {
 
 let cached: ServerlessHandler | null = null;
 let initError: Error | null = null;
+/** Evita vários cold starts em paralelo a importar create-app (504 no superadmin com 3 GETs). */
+let handlerInflight: Promise<ServerlessHandler> | null = null;
 
 async function getHandler(): Promise<ServerlessHandler> {
   if (initError) throw initError;
   if (cached) return cached;
-  try {
-    const { createApp } = await import("@vv/api/create-app");
-    const app = createApp({ stripApiPrefix: "/api" });
-    cached = serverless(app);
-    return cached;
-  } catch (e) {
-    initError = e instanceof Error ? e : new Error(String(e));
-    throw initError;
+  if (!handlerInflight) {
+    handlerInflight = (async () => {
+      const { createApp } = await import("@vv/api/create-app");
+      const app = createApp({ stripApiPrefix: "/api" });
+      const h = serverless(app);
+      cached = h;
+      return h;
+    })().catch((e) => {
+      initError = e instanceof Error ? e : new Error(String(e));
+      handlerInflight = null;
+      throw initError;
+    });
   }
+  return handlerInflight;
 }
 
 export default async function api(req: NextApiRequest, res: NextApiResponse) {
@@ -40,10 +47,33 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
      * Evitar `import(create-app)` + Express no login — era a causa típica de bloqueio até maxDuration (ex.: 60s).
      */
     const segments = apiPathSegments(req);
-    if (req.method === "GET" && segments.join("/") === "v1/platform/me") {
+    const pathKey = segments.join("/");
+
+    if (req.method === "GET" && pathKey === "v1/platform/me") {
       const { runPlatformMeGet } = await import("@vv/api/run-platform-me");
       const { status, body } = await runPlatformMeGet(headerAuthorization(req));
       return res.status(status).json(body);
+    }
+
+    if (
+      req.method === "GET" &&
+      (pathKey === "v1/platform/tenants" ||
+        pathKey === "v1/platform/superadmins" ||
+        pathKey === "v1/platform/ai-settings")
+    ) {
+      const {
+        runPlatformTenantsGet,
+        runPlatformSuperadminsGet,
+        runPlatformAiSettingsGet
+      } = await import("@vv/api/run-platform-admin-gets");
+      const auth = headerAuthorization(req);
+      const out =
+        pathKey === "v1/platform/tenants"
+          ? await runPlatformTenantsGet(auth)
+          : pathKey === "v1/platform/superadmins"
+            ? await runPlatformSuperadminsGet(auth)
+            : await runPlatformAiSettingsGet(auth);
+      return res.status(out.status).json(out.body);
     }
 
     const h = await getHandler();
