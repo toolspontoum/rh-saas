@@ -25,6 +25,24 @@ export function runPlatformTenantsGet(authorizationHeader: string | null | undef
   return withPlatformAdmin(authorizationHeader, () => platformHandlers.listTenants());
 }
 
+/** POST /v1/platform/tenants — criação de assinante no superadmin. */
+export async function runPlatformTenantsPost(
+  authorizationHeader: string | null | undefined,
+  body: unknown
+): Promise<PlatformJsonHttpResult> {
+  const gate = await ensurePlatformAdminBearer(authorizationHeader);
+  if (!gate.ok) {
+    return { status: gate.status, body: gate.body };
+  }
+  try {
+    const result = await platformHandlers.createTenant(body);
+    return { status: 201, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 export function runPlatformSuperadminsGet(authorizationHeader: string | null | undefined): Promise<PlatformJsonHttpResult> {
   return withPlatformAdmin(authorizationHeader, () => platformHandlers.listSuperadmins());
 }
