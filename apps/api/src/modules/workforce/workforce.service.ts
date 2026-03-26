@@ -1796,6 +1796,7 @@ export class WorkforceService {
 
   async upsertEmployeeProfile(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     targetUserId?: string;
     fullName?: string | null;
@@ -1822,6 +1823,7 @@ export class WorkforceService {
     }
     return this.repository.upsertEmployeeProfile({
       tenantId: input.tenantId,
+      companyId: input.companyId ?? null,
       userId: targetUserId,
       fullName: input.fullName ?? null,
       personalEmail: input.personalEmail ?? null,

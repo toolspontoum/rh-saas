@@ -1744,6 +1744,7 @@ export class WorkforceRepository {
 
   async upsertEmployeeProfile(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     fullName?: string | null;
     personalEmail?: string | null;
@@ -1759,12 +1760,17 @@ export class WorkforceRepository {
     const normalizedEmail = input.personalEmail?.trim().toLowerCase() || null;
     const normalizedCpf = input.cpf?.replace(/\D/g, "") || null;
     const normalizedPhone = input.phone?.replace(/\D/g, "") || null;
+    const companyId =
+      input.companyId ??
+      (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
+      (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
 
     const { data, error } = await this.db
       .from("tenant_user_profiles")
       .upsert(
         {
           tenant_id: input.tenantId,
+          company_id: companyId,
           user_id: input.userId,
           full_name: input.fullName ?? null,
           personal_email: normalizedEmail,
@@ -1800,17 +1806,23 @@ export class WorkforceRepository {
 
   async updateEmployeeProfileImage(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     fileName: string;
     filePath: string;
     mimeType: string;
     sizeBytes: number;
   }): Promise<EmployeeProfile> {
+    const companyId =
+      input.companyId ??
+      (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
+      (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
     const { data, error } = await this.db
       .from("tenant_user_profiles")
       .upsert(
         {
           tenant_id: input.tenantId,
+          company_id: companyId,
           user_id: input.userId,
           profile_image_file_name: input.fileName,
           profile_image_path: input.filePath,
