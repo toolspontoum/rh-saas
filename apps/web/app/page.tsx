@@ -6,6 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { apiFetch } from "../lib/api";
 import { setToken } from "../lib/auth";
+import { getPublicWebUrl } from "../lib/public-web-url";
 import { supabase } from "../lib/supabase";
 
 type TenantSummary = {
@@ -174,10 +175,7 @@ export default function LoginPage() {
     }
 
     setRecoveringPassword(true);
-    const redirectTo =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/reset-password`
-        : undefined;
+    const redirectTo = `${getPublicWebUrl()}/reset-password`;
 
     const { error: recoverError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo
@@ -205,7 +203,10 @@ export default function LoginPage() {
     setResendingConfirm(true);
     const resendResult = await supabase.auth.resend({
       email: normalizedEmail,
-      type: "signup"
+      type: "signup",
+      options: {
+        emailRedirectTo: `${getPublicWebUrl()}/signup/confirm`
+      }
     });
     setResendingConfirm(false);
 

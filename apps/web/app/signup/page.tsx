@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { getPublicWebUrl } from "../../lib/public-web-url";
 import { setToken } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
 
@@ -65,7 +66,7 @@ export default function SignUpPage() {
       password,
       options: {
         emailRedirectTo:
-          typeof window !== "undefined" ? `${window.location.origin}/signup/confirm` : undefined,
+          `${getPublicWebUrl()}/signup/confirm`,
         data: {
           full_name: fullName
         }

@@ -12,6 +12,7 @@ const envSchema = z.object({
   WEB_ALLOWED_ORIGINS: z
     .string()
     .default("http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3200,http://localhost:3200"),
+  WEB_APP_URL: z.string().url().default("https://rh-saas-delta.vercel.app"),
   MAX_PDF_UPLOAD_SIZE_BYTES: z.coerce.number().int().positive().default(15 * 1024 * 1024),
   STORAGE_BUCKET_DOCUMENTS: z.string().min(1).default("documents"),
   STORAGE_BUCKET_PAYSLIPS: z.string().min(1).default("payslips"),

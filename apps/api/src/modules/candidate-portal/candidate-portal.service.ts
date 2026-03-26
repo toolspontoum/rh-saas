@@ -1089,9 +1089,16 @@ function validateJobDocumentBundle(
 }
 
 function inferWebBaseUrl(): string {
-  const firstOrigin = env.WEB_ALLOWED_ORIGINS.split(",")[0]?.trim();
-  if (!firstOrigin) return "http://127.0.0.1:3000";
-  return firstOrigin;
+  const configured = env.WEB_APP_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+
+  const firstAllowed = env.WEB_ALLOWED_ORIGINS
+    .split(",")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith("http"));
+  if (firstAllowed) return firstAllowed.replace(/\/$/, "");
+
+  return "https://rh-saas-delta.vercel.app";
 }
 
 function validateAndNormalizeQuestionAnswers(
