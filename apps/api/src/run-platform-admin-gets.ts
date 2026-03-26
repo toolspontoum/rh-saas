@@ -51,6 +51,25 @@ export function runPlatformAiSettingsGet(authorizationHeader: string | null | un
   return withPlatformAdmin(authorizationHeader, () => platformHandlers.getAiSettings());
 }
 
+/** PATCH /v1/platform/tenants/:tenantId/ai-provider — troca do provedor por assinante. */
+export async function runPlatformTenantAiProviderPatch(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: unknown
+): Promise<PlatformJsonHttpResult> {
+  const gate = await ensurePlatformAdminBearer(authorizationHeader);
+  if (!gate.ok) {
+    return { status: gate.status, body: gate.body };
+  }
+  try {
+    const result = await platformHandlers.patchTenantAiProvider(tenantId, body);
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** POST /v1/platform/tenants/:tenantId/grant-admin — “Entrar como admin” no superadmin. */
 export async function runPlatformGrantAdminPost(
   authorizationHeader: string | null | undefined,

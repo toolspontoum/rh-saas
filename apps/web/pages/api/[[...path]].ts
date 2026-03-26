@@ -435,6 +435,21 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    if (req.method === "PATCH") {
+      const s = segments;
+      if (
+        s.length === 5 &&
+        s[0] === "v1" &&
+        s[1] === "platform" &&
+        s[2] === "tenants" &&
+        s[4] === "ai-provider"
+      ) {
+        const { runPlatformTenantAiProviderPatch } = await import("@vv/api/run-platform-admin-gets");
+        const out = await runPlatformTenantAiProviderPatch(headerAuthorization(req), s[3] ?? "", req.body ?? {});
+        return res.status(out.status).json(out.body);
+      }
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {
