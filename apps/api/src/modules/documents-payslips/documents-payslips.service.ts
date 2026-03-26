@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "../../config/env.js";
+import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js";
 import { kickPayslipAiLinkQueue } from "../ai/schedule.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import { DocumentsPayslipsRepository } from "./documents-payslips.repository.js";
@@ -10,6 +11,8 @@ import type {
   DocumentRequestRecord,
   OpenFileUrl,
   PaginatedResult,
+  PayslipBatchDetailPayload,
+  PayslipBatchListItem,
   PayslipRecord,
   UploadIntent
 } from "./documents-payslips.types.js";
@@ -521,6 +524,7 @@ export class DocumentsPayslipsService {
   async createPayslipUploadIntent(input: {
     userId: string;
     tenantId: string;
+    companyId?: string | null;
     referenceMonth: string;
     fileName: string;
     mimeType: string;
@@ -535,7 +539,11 @@ export class DocumentsPayslipsService {
     ]);
 
     const fileName = normalizePdfFileName(input.fileName);
-    const path = `tenants/${input.tenantId}/payslips/${input.referenceMonth}/${randomUUID()}-${fileName}`;
+    const companyId =
+      input.companyId && String(input.companyId).trim()
+        ? String(input.companyId).trim()
+        : await fetchDefaultTenantCompanyId(this.storage, input.tenantId);
+    const path = `tenants/${input.tenantId}/payslips/c/${companyId}/${input.referenceMonth}/${randomUUID()}-${fileName}`;
 
     const { data, error } = await this.storage.storage
       .from(env.STORAGE_BUCKET_PAYSLIPS)
@@ -664,10 +672,62 @@ export class DocumentsPayslipsService {
     });
   }
 
+  async listPayslipAiBatches(input: {
+    userId: string;
+    tenantId: string;
+    companyId?: string | null;
+    page: number;
+    pageSize: number;
+  }): Promise<PaginatedResult<PayslipBatchListItem>> {
+    await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_payslips");
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst"
+    ]);
+    return this.repository.listPayslipAiBatches({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      page: input.page,
+      pageSize: input.pageSize
+    });
+  }
+
+  async getPayslipBatchDetail(input: {
+    userId: string;
+    tenantId: string;
+    companyId?: string | null;
+    batchId: string;
+  }): Promise<PayslipBatchDetailPayload> {
+    await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_payslips");
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst"
+    ]);
+    const batch = await this.repository.findPayslipBatchById({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      batchId: input.batchId
+    });
+    if (!batch) {
+      throw new Error("PAYSLIP_BATCH_NOT_FOUND");
+    }
+    const items = await this.repository.listPayslipsInBatch({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      batchId: input.batchId
+    });
+    return { batch, items };
+  }
+
   async confirmAiBulkPayslipEnqueue(input: {
     userId: string;
     tenantId: string;
     companyId?: string | null;
+    title: string;
     referenceMonth: string;
     files: Array<{ filePath: string; fileName: string; sizeBytes: number }>;
   }): Promise<{ ok: true; batchId: string; enqueued: number }> {
@@ -694,7 +754,8 @@ export class DocumentsPayslipsService {
       createdBy: input.userId,
       contract: null,
       referenceMonth: input.referenceMonth,
-      sourceType: "ai_pdf_bulk"
+      sourceType: "ai_pdf_bulk",
+      title: input.title
     });
 
     const enqueued = await this.repository.insertAiQueuedPayslips({
@@ -821,9 +882,14 @@ function normalizePdfFileName(fileName: string): string {
 
 function ensureTenantScopedPath(tenantId: string, path: string, scope: "documents" | "payslips") {
   const expectedPrefix = `tenants/${tenantId}/${scope}/`;
-  if (!path.startsWith(expectedPrefix)) {
-    throw new Error("INVALID_FILE_PATH_SCOPE");
+  if (path.startsWith(expectedPrefix)) return;
+  if (scope === "payslips") {
+    const companyScoped = new RegExp(
+      `^tenants/${tenantId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/payslips/c/[0-9a-f-]{36}/`
+    );
+    if (companyScoped.test(path)) return;
   }
+  throw new Error("INVALID_FILE_PATH_SCOPE");
 }
 
 function parsePayslipCsv(csvText: string): Array<{

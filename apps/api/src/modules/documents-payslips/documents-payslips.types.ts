@@ -61,8 +61,26 @@ export type PayslipRecord = {
   aiLinkStatus: string | null;
   aiLinkError: string | null;
   extractedCpf: string | null;
+  aiProcessedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PayslipBatchMeta = {
+  id: string;
+  tenantId: string;
+  title: string | null;
+  referenceMonth: string;
+  sourceType: string;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+export type PayslipBatchListItem = PayslipBatchMeta & { fileCount: number };
+
+export type PayslipBatchDetailPayload = {
+  batch: PayslipBatchMeta;
+  items: PayslipRecord[];
 };
 
 export type PaginatedResult<T> = {

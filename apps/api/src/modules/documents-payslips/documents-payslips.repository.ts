@@ -8,6 +8,8 @@ import type {
   DocumentRecord,
   DocumentRequestRecord,
   PaginatedResult,
+  PayslipBatchListItem,
+  PayslipBatchMeta,
   PayslipRecord
 } from "./documents-payslips.types.js";
 
@@ -74,8 +76,19 @@ type PayslipRow = {
   ai_link_status: string | null;
   ai_link_error: string | null;
   extracted_cpf: string | null;
+  ai_processed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type PayslipBatchRow = {
+  id: string;
+  tenant_id: string;
+  title: string | null;
+  reference_month: string;
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
 };
 
 function withCompany<T extends { eq: (col: string, val: string) => T }>(
@@ -176,8 +189,21 @@ function mapPayslip(row: PayslipRow): PayslipRecord {
     aiLinkStatus: row.ai_link_status ?? null,
     aiLinkError: row.ai_link_error ?? null,
     extractedCpf: row.extracted_cpf ?? null,
+    aiProcessedAt: row.ai_processed_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapPayslipBatchMeta(row: PayslipBatchRow): PayslipBatchMeta {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    title: row.title ?? null,
+    referenceMonth: row.reference_month,
+    sourceType: row.source_type,
+    createdAt: row.created_at,
+    createdBy: row.created_by
   };
 }
 
@@ -432,8 +458,10 @@ export class DocumentsPayslipsRepository {
     contract?: string | null;
     referenceMonth: string;
     sourceType: string;
+    title?: string | null;
   }): Promise<{ id: string }> {
     const companyId = await resolveDocCompany(this.db, input.tenantId, input.companyId);
+    const title = input.title?.trim() ? input.title.trim().slice(0, 200) : null;
     const { data, error } = await this.db
       .from("payslip_batches")
       .insert({
@@ -442,7 +470,8 @@ export class DocumentsPayslipsRepository {
         contract: input.contract ?? null,
         reference_month: input.referenceMonth,
         source_type: input.sourceType,
-        created_by: input.createdBy
+        created_by: input.createdBy,
+        title
       })
       .select("id")
       .single();
@@ -732,6 +761,7 @@ export class DocumentsPayslipsRepository {
 
   async findEmployeeContextByCpf(
     tenantId: string,
+    companyId: string,
     digits: string
   ): Promise<{
     userId: string;
@@ -743,6 +773,7 @@ export class DocumentsPayslipsRepository {
       .from("tenant_user_profiles")
       .select("user_id, full_name, cpf, personal_email")
       .eq("tenant_id", tenantId)
+      .eq("company_id", companyId)
       .not("cpf", "is", null);
     if (error) throw error;
     const row = (data ?? []).find(
@@ -771,7 +802,8 @@ export class DocumentsPayslipsRepository {
       .update({
         ai_link_status: input.aiLinkStatus,
         ai_link_error: input.aiLinkError,
-        extracted_cpf: input.extractedCpf
+        extracted_cpf: input.extractedCpf,
+        ai_processed_at: new Date().toISOString()
       })
       .eq("tenant_id", input.tenantId)
       .eq("id", input.payslipId);
@@ -794,7 +826,8 @@ export class DocumentsPayslipsRepository {
         collaborator_email: input.collaboratorEmail.toLowerCase(),
         extracted_cpf: input.extractedCpf,
         ai_link_status: "linked",
-        ai_link_error: null
+        ai_link_error: null,
+        ai_processed_at: new Date().toISOString()
       })
       .eq("tenant_id", input.tenantId)
       .eq("id", input.payslipId);
@@ -831,5 +864,81 @@ export class DocumentsPayslipsRepository {
     const { error } = await this.db.from("payslips").insert(payload);
     if (error) throw error;
     return payload.length;
+  }
+
+  async listPayslipAiBatches(input: {
+    tenantId: string;
+    companyId?: string | null;
+    page: number;
+    pageSize: number;
+  }): Promise<PaginatedResult<PayslipBatchListItem>> {
+    let query = this.db
+      .from("payslip_batches")
+      .select("id, tenant_id, title, reference_month, source_type, created_at, created_by")
+      .eq("tenant_id", input.tenantId)
+      .eq("source_type", "ai_pdf_bulk");
+    if (input.companyId) query = query.eq("company_id", input.companyId);
+    query = query.order("created_at", { ascending: false });
+
+    const offset = (input.page - 1) * input.pageSize;
+    const { data, error } = await query.range(offset, offset + input.pageSize - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as PayslipBatchRow[];
+    if (rows.length === 0) {
+      return { items: [], page: input.page, pageSize: input.pageSize };
+    }
+    const batchIds = rows.map((r) => r.id);
+    let countQuery = this.db
+      .from("payslips")
+      .select("batch_id")
+      .eq("tenant_id", input.tenantId)
+      .in("batch_id", batchIds);
+    countQuery = withCompany(countQuery, input.companyId);
+    const { data: countRows, error: countErr } = await countQuery;
+    if (countErr) throw countErr;
+    const byBatch = new Map<string, number>();
+    for (const pr of (countRows ?? []) as { batch_id: string | null }[]) {
+      if (!pr.batch_id) continue;
+      byBatch.set(pr.batch_id, (byBatch.get(pr.batch_id) ?? 0) + 1);
+    }
+    const items: PayslipBatchListItem[] = rows.map((row) => ({
+      ...mapPayslipBatchMeta(row),
+      fileCount: byBatch.get(row.id) ?? 0
+    }));
+    return { items, page: input.page, pageSize: input.pageSize };
+  }
+
+  async findPayslipBatchById(input: {
+    tenantId: string;
+    batchId: string;
+    companyId?: string | null;
+  }): Promise<PayslipBatchMeta | null> {
+    let q = this.db
+      .from("payslip_batches")
+      .select("id, tenant_id, title, reference_month, source_type, created_at, created_by")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.batchId);
+    q = withCompany(q, input.companyId);
+    const { data, error } = await q.maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return mapPayslipBatchMeta(data as PayslipBatchRow);
+  }
+
+  async listPayslipsInBatch(input: {
+    tenantId: string;
+    batchId: string;
+    companyId?: string | null;
+  }): Promise<PayslipRecord[]> {
+    let q = this.db
+      .from("payslips")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .eq("batch_id", input.batchId)
+      .order("created_at", { ascending: true });
+    q = withCompany(q, input.companyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return ((data ?? []) as PayslipRow[]).map(mapPayslip);
   }
 }

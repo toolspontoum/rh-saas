@@ -123,6 +123,7 @@ const documentUploadIntentSchema = z.object({
 const payslipUploadIntentSchema = z.object({
   userId: z.string().uuid(),
   tenantId: z.string().uuid(),
+  companyId: optionalCompanyScope,
   referenceMonth: z.string().regex(/^\d{4}-\d{2}$/),
   fileName: z.string().min(1).max(240),
   mimeType: z.literal("application/pdf"),
@@ -208,6 +209,7 @@ const confirmAiBulkPayslipsSchema = z.object({
   userId: z.string().uuid(),
   tenantId: z.string().uuid(),
   companyId: optionalCompanyScope,
+  title: z.string().min(1).max(200),
   referenceMonth: z.string().regex(/^\d{4}-\d{2}$/),
   files: z
     .array(
@@ -218,7 +220,22 @@ const confirmAiBulkPayslipsSchema = z.object({
       })
     )
     .min(1)
-    .max(50)
+    .max(100)
+});
+
+const listPayslipBatchesSchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  companyId: optionalCompanyScope,
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20)
+});
+
+const getPayslipBatchDetailSchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  companyId: optionalCompanyScope,
+  batchId: z.string().uuid()
 });
 
 export class DocumentsPayslipsHandlers {
@@ -292,6 +309,16 @@ export class DocumentsPayslipsHandlers {
   async confirmAiBulkPayslips(input: unknown) {
     const payload = confirmAiBulkPayslipsSchema.parse(input);
     return this.service.confirmAiBulkPayslipEnqueue(payload);
+  }
+
+  async listPayslipAiBatches(input: unknown) {
+    const payload = listPayslipBatchesSchema.parse(input);
+    return this.service.listPayslipAiBatches(payload);
+  }
+
+  async getPayslipBatchDetail(input: unknown) {
+    const payload = getPayslipBatchDetailSchema.parse(input);
+    return this.service.getPayslipBatchDetail(payload);
   }
 
   async importPayslipsCsv(input: unknown) {

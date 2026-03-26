@@ -38,30 +38,37 @@ export default function CollaboratorListPage() {
   const [contractFilter, setContractFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function loadData() {
-    const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
-    const allUsers = data.items ?? [];
-    const entries = await Promise.all(
-      allUsers.map(async (item) => {
-        try {
-          const profile = await apiFetch<EmployeeProfile | null>(
-            `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-          );
-          return [item.userId, profile] as const;
-        } catch {
-          return [item.userId, null] as const;
-        }
-      })
-    );
+    setLoading(true);
+    try {
+      const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
+      const allUsers = data.items ?? [];
+      const entries = await Promise.all(
+        allUsers.map(async (item) => {
+          try {
+            const profile = await apiFetch<EmployeeProfile | null>(
+              `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
+            );
+            return [item.userId, profile] as const;
+          } catch {
+            return [item.userId, null] as const;
+          }
+        })
+      );
 
-    const next: Record<string, EmployeeProfile> = {};
-    for (const [userId, profile] of entries) {
-      if (profile) next[userId] = profile;
+      const next: Record<string, EmployeeProfile> = {};
+      for (const [userId, profile] of entries) {
+        if (profile) next[userId] = profile;
+      }
+      setProfiles(next);
+      const collaborators = allUsers.filter((item) => item.roles.includes("employee") || Boolean(next[item.userId]));
+      setItems(collaborators);
+      setError(null);
+    } finally {
+      setLoading(false);
     }
-    setProfiles(next);
-    const collaborators = allUsers.filter((item) => item.roles.includes("employee") || Boolean(next[item.userId]));
-    setItems(collaborators);
   }
 
   useEffect(() => {
@@ -162,7 +169,11 @@ export default function CollaboratorListPage() {
       </div>
 
       <div className="card table-wrap">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Carregando colaboradores...
+          </p>
+        ) : filtered.length === 0 ? (
           <EmptyState title="Sem colaboradores" description="Nenhum colaborador encontrado para os filtros aplicados." />
         ) : (
           <table className="table">

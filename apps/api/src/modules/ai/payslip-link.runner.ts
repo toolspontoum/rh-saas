@@ -41,13 +41,14 @@ export async function runPayslipAiLink(input: {
     .eq("tenant_id", tenantId)
     .eq("id", payslipId)
     .eq("ai_link_status", "queued")
-    .select("id, file_path")
+    .select("id, file_path, company_id")
     .maybeSingle();
 
   if (claimError) throw claimError;
   if (!claim) return;
 
   const filePath = (claim as { file_path: string }).file_path;
+  const companyId = (claim as { company_id: string }).company_id;
 
   try {
     const provider = await resolveEffectiveAiProvider(supabaseAdmin, tenantId);
@@ -105,7 +106,7 @@ export async function runPayslipAiLink(input: {
       return;
     }
 
-    const employee = await repository.findEmployeeContextByCpf(tenantId, digits);
+    const employee = await repository.findEmployeeContextByCpf(tenantId, companyId, digits);
     if (!employee) {
       await repository.updatePayslipAiLinkResult({
         tenantId,

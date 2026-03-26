@@ -212,6 +212,10 @@ const knownErrors = new Map<string, ApiErrorShape>([
     }
   ],
   ["PAYSLIP_NOT_FOUND", { status: 404, code: "PAYSLIP_NOT_FOUND", message: "Contracheque nao encontrado para o assinante selecionado." }],
+  [
+    "PAYSLIP_BATCH_NOT_FOUND",
+    { status: 404, code: "PAYSLIP_BATCH_NOT_FOUND", message: "Lote de contracheques nao encontrado para o projeto selecionado." }
+  ],
   ["FILE_OPEN_URL_FAILED", { status: 500, code: "FILE_OPEN_URL_FAILED", message: "Nao foi possivel gerar URL de visualizacao do arquivo." }],
   [
     "COMPANY_SCOPE_REQUIRED",

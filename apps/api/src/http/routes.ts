@@ -792,6 +792,7 @@ apiRouter.post("/v1/tenants/:tenantId/payslips/upload-intent", requireAuth, asyn
     const result = await documentsPayslipsHandlers.createPayslipUploadIntent({
       tenantId: req.params.tenantId,
       userId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
       referenceMonth: req.body?.referenceMonth,
       fileName: req.body?.fileName,
       mimeType: req.body?.mimeType,
@@ -832,10 +833,44 @@ apiRouter.post("/v1/tenants/:tenantId/payslips/confirm-ai-bulk", requireAuth, as
       tenantId: req.params.tenantId,
       userId: (req as AuthenticatedRequest).auth.userId,
       companyId: getTenantCompanyId(req),
+      title: req.body?.title,
       referenceMonth: req.body?.referenceMonth,
       files: req.body?.files
     });
     return res.status(201).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/payslips/batches", requireAuth, async (req, res) => {
+  try {
+    const page = typeof req.query.page === "string" ? req.query.page : undefined;
+    const pageSize = typeof req.query.pageSize === "string" ? req.query.pageSize : undefined;
+    const result = await documentsPayslipsHandlers.listPayslipAiBatches({
+      tenantId: req.params.tenantId,
+      userId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      page,
+      pageSize
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/payslips/batches/:batchId", requireAuth, async (req, res) => {
+  try {
+    const result = await documentsPayslipsHandlers.getPayslipBatchDetail({
+      tenantId: req.params.tenantId,
+      userId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      batchId: req.params.batchId
+    });
+    return res.status(200).json(result);
   } catch (error) {
     const parsed = toHttpError(error);
     return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
