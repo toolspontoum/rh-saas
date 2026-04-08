@@ -7,6 +7,7 @@ import { auditLogsHandlers } from "../modules/audit-logs/index.js";
 import { candidatePortalHandlers } from "../modules/candidate-portal/index.js";
 import { coreAuthTenantHandlers } from "../modules/core-auth-tenant/index.js";
 import { documentsPayslipsHandlers } from "../modules/documents-payslips/index.js";
+import { employeePreregHandlers } from "../modules/employee-prereg/index.js";
 import { isUuid } from "../modules/platform/platform.slugify.js";
 import { recruitmentHandlers } from "../modules/recruitment/index.js";
 import { standardDocumentsHandlers } from "../modules/standard-documents/index.js";
@@ -18,6 +19,11 @@ import { toHttpError } from "./error-handler.js";
 import { getTenantCompanyId, resolveTenantCompanyScope } from "./tenant-company-scope.middleware.js";
 
 const resumeProcessAiUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: env.MAX_PDF_UPLOAD_SIZE_BYTES }
+});
+
+const employeeImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.MAX_PDF_UPLOAD_SIZE_BYTES }
 });
@@ -1349,6 +1355,185 @@ apiRouter.post("/v1/tenants/:tenantId/employees", requireAuth, async (req, res) 
       email: req.body?.email,
       cpf: req.body?.cpf,
       phone: req.body?.phone
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/employee-prereg/batches", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.createBatch({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      expectedDocCount: req.body?.expectedDocCount
+    });
+    return res.status(201).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post(
+  "/v1/tenants/:tenantId/employee-prereg/batches/:batchId/process",
+  requireAuth,
+  (req, res, next) => {
+    employeeImportUpload.single("file")(req, res, (err: unknown) => {
+      if (err && typeof err === "object" && err !== null && "code" in err) {
+        const code = (err as { code: string }).code;
+        if (code === "LIMIT_FILE_SIZE") {
+          const parsed = toHttpError(new Error("FILE_TOO_LARGE"));
+          return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+        }
+      }
+      if (err) {
+        const parsed = toHttpError(err);
+        return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const file = (req as Request & { file?: Express.Multer.File }).file;
+      if (!file?.buffer) {
+        const parsed = toHttpError(new Error("FILES_REQUIRED"));
+        return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+      }
+      const result = await employeePreregHandlers.processBatchFile({
+        tenantId: req.params.tenantId,
+        actorUserId: (req as AuthenticatedRequest).auth.userId,
+        companyId: getTenantCompanyId(req),
+        batchId: req.params.batchId,
+        fileName: file.originalname || "documento",
+        mimeType: file.mimetype,
+        buffer: file.buffer
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      const parsed = toHttpError(error);
+      return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+    }
+  }
+);
+
+apiRouter.get("/v1/tenants/:tenantId/employee-prereg", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.listPreregistrations({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req)
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/employee-prereg/batches/log", requireAuth, async (req, res) => {
+  try {
+    const limit = typeof req.query.limit === "string" ? req.query.limit : undefined;
+    const result = await employeePreregHandlers.listBatches({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      limit
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/employee-prereg/batches/:batchId/detail", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.getBatchDetail({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      batchId: req.params.batchId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/employee-prereg/:preregId", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.getPreregistrationDetail({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      preregId: req.params.preregId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.put("/v1/tenants/:tenantId/employee-prereg/:preregId", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.updatePreregistrationPayload({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      preregId: req.params.preregId,
+      body: req.body
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.delete("/v1/tenants/:tenantId/employee-prereg/:preregId", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.deletePreregistration({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      preregId: req.params.preregId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/employee-prereg/:preregId/confirm-register", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.confirmRegister({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      preregId: req.params.preregId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/employee-prereg/:preregId/confirm-link", requireAuth, async (req, res) => {
+  try {
+    const result = await employeePreregHandlers.confirmLink({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      preregId: req.params.preregId
     });
     return res.status(200).json(result);
   } catch (error) {

@@ -9,3 +9,5 @@ const workforceService = new WorkforceService(workforceRepository, coreAuthTenan
 
 export const workforceHandlers = new WorkforceHandlers(workforceService);
 
+export { workforceService };
+
