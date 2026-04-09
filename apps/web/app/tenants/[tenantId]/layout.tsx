@@ -205,6 +205,11 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       links.push({ label: "Documentos padrão", href: `/tenants/${tenantId}/standard-documents`, section: "backoffice" });
       links.push({ label: "Empresas / projetos", href: `/tenants/${tenantId}/companies`, section: "backoffice" });
       links.push({ label: "Usuarios", href: `/tenants/${tenantId}/users`, section: "backoffice" });
+      links.push({
+        label: "Cadastro automatico (IA)",
+        href: `/tenants/${tenantId}/employees/auto-import`,
+        section: "backoffice"
+      });
       links.push({ label: "Auditoria", href: `/tenants/${tenantId}/audit`, section: "backoffice" });
     }
 

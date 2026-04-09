@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install && npm install --prefix ../api",
   "functions": {
     "pages/api/[[...path]].ts": {
       "maxDuration": 60

@@ -9,3 +9,5 @@ const tenantUsersService = new TenantUsersService(tenantUsersRepository, coreAut
 
 export const tenantUsersHandlers = new TenantUsersHandlers(tenantUsersService);
 
+export { tenantUsersService };
+

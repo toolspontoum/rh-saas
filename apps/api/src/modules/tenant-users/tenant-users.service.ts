@@ -254,6 +254,13 @@ export class TenantUsersService {
     return this.repository.lookupEmployeeByEmail(input.tenantId, input.email);
   }
 
+  /** Conta de auth existente (por e-mail normalizado), sem checar vínculo ao tenant. */
+  async resolveAuthUserIdByEmail(email: string): Promise<string | null> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return null;
+    return this.repository.findUserIdByEmail(normalized);
+  }
+
   async upsertBackofficeUser(input: {
     tenantId: string;
     actorUserId: string;

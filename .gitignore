@@ -1,6 +1,9 @@
 # Dependências (em qualquer pasta do monorepo)
 node_modules/
 
+# Vercel CLI (link local)
+.vercel/
+
 # Build / caches
 dist/
 .next/

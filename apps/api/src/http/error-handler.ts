@@ -336,6 +336,71 @@ const knownErrors = new Map<string, ApiErrorShape>([
       message:
         "Nao foi possivel ler o conteudo do arquivo. Envie um PDF com texto selecionavel, outro PDF, ou uma imagem nitida do curriculo."
     }
+  ],
+  [
+    "EMPLOYEE_IMPORT_UNREADABLE_FILE",
+    {
+      status: 400,
+      code: "EMPLOYEE_IMPORT_UNREADABLE_FILE",
+      message:
+        "Nao foi possivel ler o arquivo. Envie PDF com texto, imagem nitida (JPG/PNG/WEBP), ou planilha CSV/XLS/XLSX com dados."
+    }
+  ],
+  [
+    "EMPTY_SPREADSHEET",
+    { status: 400, code: "EMPTY_SPREADSHEET", message: "A planilha esta vazia ou sem dados legiveis." }
+  ],
+  [
+    "AI_JSON_PARSE_FAILED",
+    { status: 502, code: "AI_JSON_PARSE_FAILED", message: "A IA retornou uma resposta invalida. Tente novamente ou use outro arquivo." }
+  ],
+  [
+    "EMPLOYEE_PREREG_NOT_FOUND",
+    { status: 404, code: "EMPLOYEE_PREREG_NOT_FOUND", message: "Pre-cadastro nao encontrado ou fora do escopo da empresa selecionada." }
+  ],
+  [
+    "EMPLOYEE_PREREG_WRONG_STATUS",
+    {
+      status: 409,
+      code: "EMPLOYEE_PREREG_WRONG_STATUS",
+      message: "Este pre-cadastro nao esta mais pendente (ja confirmado ou removido)."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_EMAIL_REQUIRED",
+    {
+      status: 400,
+      code: "EMPLOYEE_PREREG_EMAIL_REQUIRED",
+      message: "Informe um e-mail valido no pre-cadastro antes de cadastrar ou vincular."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_FULL_NAME_REQUIRED",
+    {
+      status: 400,
+      code: "EMPLOYEE_PREREG_FULL_NAME_REQUIRED",
+      message: "Informe o nome completo (minimo 3 caracteres) antes de confirmar."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_REGISTER_USER_EXISTS",
+    {
+      status: 409,
+      code: "EMPLOYEE_PREREG_REGISTER_USER_EXISTS",
+      message: "Ja existe conta com este e-mail. Use a acao Vincular usuario."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_LINK_USER_MISSING",
+    {
+      status: 400,
+      code: "EMPLOYEE_PREREG_LINK_USER_MISSING",
+      message: "Nao ha usuario cadastrado com este e-mail. Use a acao Cadastrar."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_BATCH_NOT_FOUND",
+    { status: 404, code: "EMPLOYEE_PREREG_BATCH_NOT_FOUND", message: "Lote de importacao nao encontrado." }
   ]
 ]);
 
