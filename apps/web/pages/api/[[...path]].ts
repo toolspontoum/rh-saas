@@ -16,6 +16,23 @@ function headerAuthorization(req: NextApiRequest): string | null {
   return null;
 }
 
+async function readJsonBody(req: NextApiRequest): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req as AsyncIterable<Buffer | string>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw.trim()) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 let cached: ServerlessHandler | null = null;
 let initError: Error | null = null;
 /** Evita vários cold starts em paralelo a importar create-app (504 no superadmin com 3 GETs). */
@@ -446,6 +463,124 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       ) {
         const { runPlatformTenantAiProviderPatch } = await import("@vv/api/run-platform-admin-gets");
         const out = await runPlatformTenantAiProviderPatch(headerAuthorization(req), s[3] ?? "", req.body ?? {});
+        return res.status(out.status).json(out.body);
+      }
+    }
+
+    /** Cadastro automático (employee-prereg): evita carregar Express no cold start (504 na Vercel). */
+    if (
+      segments.length >= 4 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "employee-prereg"
+    ) {
+      const tenantSegment = segments[2] ?? "";
+      const companyRawEp = req.headers["x-tenant-company-id"];
+      const xCompanyEp =
+        typeof companyRawEp === "string"
+          ? companyRawEp
+          : Array.isArray(companyRawEp)
+            ? companyRawEp[0]
+            : undefined;
+      const authEp = headerAuthorization(req);
+      const {
+        runEmployeePreregListGet,
+        runEmployeePreregBatchesLogGet,
+        runEmployeePreregBatchDetailGet,
+        runEmployeePreregDetailGet,
+        runEmployeePreregCreateBatchPost,
+        runEmployeePreregUpdatePut,
+        runEmployeePreregDelete,
+        runEmployeePreregConfirmRegisterPost,
+        runEmployeePreregConfirmLinkPost
+      } = await import("@vv/api/run-employee-prereg");
+
+      if (req.method === "GET" && segments.length === 4) {
+        const out = await runEmployeePreregListGet(authEp, tenantSegment, xCompanyEp);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "GET" && segments.length === 6 && segments[4] === "batches" && segments[5] === "log") {
+        const qEp = req.query;
+        const out = await runEmployeePreregBatchesLogGet(
+          authEp,
+          tenantSegment,
+          { limit: typeof qEp.limit === "string" ? qEp.limit : undefined },
+          xCompanyEp
+        );
+        return res.status(out.status).json(out.body);
+      }
+
+      if (
+        req.method === "GET" &&
+        segments.length === 7 &&
+        segments[4] === "batches" &&
+        segments[6] === "detail"
+      ) {
+        const out = await runEmployeePreregBatchDetailGet(
+          authEp,
+          tenantSegment,
+          segments[5] ?? "",
+          xCompanyEp
+        );
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "GET" && segments.length === 5 && segments[4] !== "batches") {
+        const out = await runEmployeePreregDetailGet(authEp, tenantSegment, segments[4] ?? "", xCompanyEp);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "POST" && segments.length === 5 && segments[4] === "batches") {
+        const bodyEp = await readJsonBody(req);
+        const out = await runEmployeePreregCreateBatchPost(authEp, tenantSegment, bodyEp, xCompanyEp);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "PUT" && segments.length === 5 && segments[4] !== "batches") {
+        const bodyPut = await readJsonBody(req);
+        const out = await runEmployeePreregUpdatePut(
+          authEp,
+          tenantSegment,
+          segments[4] ?? "",
+          bodyPut,
+          xCompanyEp
+        );
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[4] !== "batches") {
+        const out = await runEmployeePreregDelete(authEp, tenantSegment, segments[4] ?? "", xCompanyEp);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[5] === "confirm-register" &&
+        segments[4] !== "batches"
+      ) {
+        const out = await runEmployeePreregConfirmRegisterPost(
+          authEp,
+          tenantSegment,
+          segments[4] ?? "",
+          xCompanyEp
+        );
+        return res.status(out.status).json(out.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[5] === "confirm-link" &&
+        segments[4] !== "batches"
+      ) {
+        const out = await runEmployeePreregConfirmLinkPost(
+          authEp,
+          tenantSegment,
+          segments[4] ?? "",
+          xCompanyEp
+        );
         return res.status(out.status).json(out.body);
       }
     }
