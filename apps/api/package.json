@@ -12,6 +12,7 @@
     "./run-tenant-users-get": "./src/run-tenant-users-get.ts",
     "./run-tenant-data-gets": "./src/run-tenant-data-gets.ts",
     "./run-tenant-writes": "./src/run-tenant-writes.ts",
+    "./run-employee-prereg": "./src/run-employee-prereg.ts",
     "./run-public-jobs": "./src/run-public-jobs.ts"
   },
   "scripts": {
