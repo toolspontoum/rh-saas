@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { ConfirmModal } from "../../../../../components/confirm-modal";
@@ -139,7 +139,8 @@ export default function EmployeeAutoImportPage() {
   const params = useParams<{ tenantId: string }>();
   const tenantId = params?.tenantId ?? "";
 
-  const hasCompany = useMemo(() => Boolean(getStoredTenantCompanyId(tenantId)), [tenantId]);
+  /** Só após mount: evita hidratação divergente (SSR sem localStorage vs cliente com empresa). */
+  const [hasCompany, setHasCompany] = useState(false);
 
   const [fileJobs, setFileJobs] = useState<FileJob[]>([]);
   const [sessionRunning, setSessionRunning] = useState(false);
@@ -187,6 +188,19 @@ export default function EmployeeAutoImportPage() {
   useEffect(() => {
     void loadLists();
   }, [loadLists]);
+
+  useEffect(() => {
+    function syncCompanyFromStorage() {
+      setHasCompany(Boolean(getStoredTenantCompanyId(tenantId)));
+    }
+    syncCompanyFromStorage();
+    window.addEventListener("vv-tenant-company-changed", syncCompanyFromStorage);
+    window.addEventListener("storage", syncCompanyFromStorage);
+    return () => {
+      window.removeEventListener("vv-tenant-company-changed", syncCompanyFromStorage);
+      window.removeEventListener("storage", syncCompanyFromStorage);
+    };
+  }, [tenantId]);
 
   useEffect(() => {
     if (!detailId || !hasCompany) {
