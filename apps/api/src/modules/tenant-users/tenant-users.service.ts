@@ -254,11 +254,32 @@ export class TenantUsersService {
     return this.repository.lookupEmployeeByEmail(input.tenantId, input.email);
   }
 
+  async lookupEmployeeByCpf(input: {
+    tenantId: string;
+    actorUserId: string;
+    cpf: string;
+  }): Promise<EmployeeLookupResult> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager"
+    ]);
+
+    return this.repository.lookupEmployeeByCpf(input.tenantId, input.cpf);
+  }
+
   /** Conta de auth existente (por e-mail normalizado), sem checar vínculo ao tenant. */
   async resolveAuthUserIdByEmail(email: string): Promise<string | null> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) return null;
     return this.repository.findUserIdByEmail(normalized);
+  }
+
+  /** Usuário já cadastrado (perfil/candidato/auth), por CPF só dígitos (11). */
+  async resolveAuthUserIdByCpf(cpfDigits: string): Promise<string | null> {
+    const normalized = cpfDigits.replace(/\D/g, "");
+    if (normalized.length !== 11) return null;
+    return this.repository.findUserIdByCpf(normalized);
   }
 
   async upsertBackofficeUser(input: {

@@ -210,13 +210,20 @@ export class EmployeePreregService {
 
     const emailRaw = payload.personalEmail?.trim().toLowerCase() ?? "";
     const emailOk = z.string().email().max(255).safeParse(emailRaw);
+    const cpfDigits = (payload.cpf ?? "").replace(/\D/g, "");
+    const cpfOk = cpfDigits.length === 11;
+
     let suggestedAction: "register" | "link" | "need_email" = "need_email";
     let authUserId: string | null = null;
     let alreadyEmployeeInTenant = false;
 
-    if (emailOk.success) {
-      const email = emailOk.data;
-      authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(email);
+    if (emailOk.success || cpfOk) {
+      if (emailOk.success) {
+        authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(emailOk.data);
+      }
+      if (!authUserId && cpfOk) {
+        authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(cpfDigits);
+      }
       suggestedAction = authUserId ? "link" : "register";
       if (authUserId) {
         alreadyEmployeeInTenant = await this.repository.hasEmployeeRole(input.tenantId, authUserId);
@@ -280,12 +287,27 @@ export class EmployeePreregService {
 
     const emailRaw = payload.personalEmail?.trim().toLowerCase() ?? "";
     const emailCheck = z.string().email().max(255).safeParse(emailRaw);
-    if (!emailCheck.success) {
-      throw new Error("EMPLOYEE_PREREG_EMAIL_REQUIRED");
-    }
-    const email = emailCheck.data;
+    const email = emailCheck.success ? emailCheck.data : null;
 
-    const authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(email);
+    const cpfDigits = (payload.cpf ?? "").replace(/\D/g, "");
+    const cpfNormalized = cpfDigits.length === 11 ? cpfDigits : null;
+
+    if (input.mode === "register") {
+      if (!email) {
+        throw new Error("EMPLOYEE_PREREG_EMAIL_REQUIRED");
+      }
+    } else if (!email && !cpfNormalized) {
+      throw new Error("EMPLOYEE_PREREG_LINK_IDENTIFIERS_MISSING");
+    }
+
+    let authUserId: string | null = null;
+    if (email) {
+      authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(email);
+    }
+    if (!authUserId && cpfNormalized) {
+      authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(cpfNormalized);
+    }
+
     if (input.mode === "register" && authUserId) {
       throw new Error("EMPLOYEE_PREREG_REGISTER_USER_EXISTS");
     }
@@ -298,10 +320,12 @@ export class EmployeePreregService {
       actorUserId: input.actorUserId,
       companyId: input.companyId,
       fullName,
-      email,
-      cpf: payload.cpf?.replace(/\D/g, "") || undefined,
+      email: email ?? undefined,
+      cpf: cpfNormalized ?? undefined,
       phone: payload.phone?.replace(/\D/g, "") || undefined
     });
+
+    const personalEmailForProfile = email ?? linked.email ?? null;
 
     await this.workforceService.upsertEmployeeProfile({
       tenantId: input.tenantId,
@@ -309,7 +333,7 @@ export class EmployeePreregService {
       userId: input.actorUserId,
       targetUserId: linked.userId,
       fullName,
-      personalEmail: email,
+      personalEmail: personalEmailForProfile,
       cpf: payload.cpf?.replace(/\D/g, "") || null,
       phone: payload.phone?.replace(/\D/g, "") || null,
       department: payload.department ?? null,

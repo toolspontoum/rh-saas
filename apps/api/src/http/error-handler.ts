@@ -371,7 +371,15 @@ const knownErrors = new Map<string, ApiErrorShape>([
     {
       status: 400,
       code: "EMPLOYEE_PREREG_EMAIL_REQUIRED",
-      message: "Informe um e-mail valido no pre-cadastro antes de cadastrar ou vincular."
+      message: "Informe um e-mail valido no pre-cadastro antes de cadastrar."
+    }
+  ],
+  [
+    "EMPLOYEE_PREREG_LINK_IDENTIFIERS_MISSING",
+    {
+      status: 400,
+      code: "EMPLOYEE_PREREG_LINK_IDENTIFIERS_MISSING",
+      message: "Para vincular, informe um e-mail valido ou um CPF completo (11 digitos) que exista na base."
     }
   ],
   [
@@ -387,7 +395,7 @@ const knownErrors = new Map<string, ApiErrorShape>([
     {
       status: 409,
       code: "EMPLOYEE_PREREG_REGISTER_USER_EXISTS",
-      message: "Ja existe conta com este e-mail. Use a acao Vincular usuario."
+      message: "Ja existe usuario com este e-mail ou CPF. Use a acao Vincular usuario."
     }
   ],
   [
@@ -395,7 +403,7 @@ const knownErrors = new Map<string, ApiErrorShape>([
     {
       status: 400,
       code: "EMPLOYEE_PREREG_LINK_USER_MISSING",
-      message: "Nao ha usuario cadastrado com este e-mail. Use a acao Cadastrar."
+      message: "Nao ha usuario cadastrado com o e-mail ou CPF informados. Use a acao Cadastrar."
     }
   ],
   [

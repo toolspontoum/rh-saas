@@ -45,6 +45,12 @@ const lookupEmployeeByEmailSchema = z.object({
   email: z.string().email()
 });
 
+const lookupEmployeeByCpfSchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  cpf: z.string().min(1).max(20)
+});
+
 const upsertBackofficeUserSchema = z.object({
   tenantId: z.string().uuid(),
   actorUserId: z.string().uuid(),
@@ -82,6 +88,11 @@ export class TenantUsersHandlers {
   async lookupEmployeeByEmail(input: unknown) {
     const payload = lookupEmployeeByEmailSchema.parse(input);
     return this.service.lookupEmployeeByEmail(payload);
+  }
+
+  async lookupEmployeeByCpf(input: unknown) {
+    const payload = lookupEmployeeByCpfSchema.parse(input);
+    return this.service.lookupEmployeeByCpf(payload);
   }
 
   async upsertBackofficeUser(input: unknown) {

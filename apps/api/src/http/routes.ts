@@ -1345,6 +1345,21 @@ apiRouter.get("/v1/tenants/:tenantId/employees/lookup-by-email", requireAuth, as
   }
 });
 
+apiRouter.get("/v1/tenants/:tenantId/employees/lookup-by-cpf", requireAuth, async (req, res) => {
+  try {
+    const cpf = typeof req.query.cpf === "string" ? req.query.cpf : "";
+    const result = await tenantUsersHandlers.lookupEmployeeByCpf({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      cpf
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.post("/v1/tenants/:tenantId/employees", requireAuth, async (req, res) => {
   try {
     const result = await tenantUsersHandlers.upsertEmployee({
