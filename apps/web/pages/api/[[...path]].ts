@@ -585,6 +585,51 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** Lotes de contracheques (IA): upload-intent e listagem sem cold start do Express (504). */
+    if (
+      segments.length === 5 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "payslips"
+    ) {
+      const tenantPs = segments[2] ?? "";
+      const payslipSub = segments[4] ?? "";
+      const companyRawPs = req.headers["x-tenant-company-id"];
+      const xCompanyPs =
+        typeof companyRawPs === "string"
+          ? companyRawPs
+          : Array.isArray(companyRawPs)
+            ? companyRawPs[0]
+            : undefined;
+      const authPs = headerAuthorization(req);
+      const {
+        runPayslipBatchesListGet,
+        runPayslipUploadIntentPost,
+        runPayslipConfirmAiBulkPost
+      } = await import("@vv/api/run-payslips-ai-vercel");
+
+      if (req.method === "GET" && payslipSub === "batches") {
+        const qPs = req.query;
+        const out = await runPayslipBatchesListGet(authPs, tenantPs, {
+          page: typeof qPs.page === "string" ? qPs.page : undefined,
+          pageSize: typeof qPs.pageSize === "string" ? qPs.pageSize : undefined
+        }, xCompanyPs);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "POST" && payslipSub === "upload-intent") {
+        const bodyPs = await readJsonBody(req);
+        const out = await runPayslipUploadIntentPost(authPs, tenantPs, bodyPs, xCompanyPs);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (req.method === "POST" && payslipSub === "confirm-ai-bulk") {
+        const bodyBulk = await readJsonBody(req);
+        const out = await runPayslipConfirmAiBulkPost(authPs, tenantPs, bodyBulk, xCompanyPs);
+        return res.status(out.status).json(out.body);
+      }
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {
