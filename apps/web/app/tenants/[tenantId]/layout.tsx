@@ -201,6 +201,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     }
 
     if (isManagement) {
+      links.push({ label: "Minha conta", href: `/tenants/${tenantId}/account`, section: "backoffice" });
       links.push({ label: "Regras Ponto", href: `/tenants/${tenantId}/time/rules`, section: "backoffice" });
       links.push({ label: "Documentos padrão", href: `/tenants/${tenantId}/standard-documents`, section: "backoffice" });
       links.push({ label: "Empresas / projetos", href: `/tenants/${tenantId}/companies`, section: "backoffice" });
