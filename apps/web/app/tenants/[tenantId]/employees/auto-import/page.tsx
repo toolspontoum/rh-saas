@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { ConfirmModal } from "../../../../../components/confirm-modal";
@@ -164,7 +164,12 @@ export default function EmployeeAutoImportPage() {
   const [batchDetail, setBatchDetail] = useState<BatchDetail | null>(null);
 
   const [confirmAction, setConfirmAction] = useState<null | "register" | "link" | "delete">(null);
-  const [emailLookupExists, setEmailLookupExists] = useState<boolean | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  /** null = ainda não dá para concluir (sem e-mail válido nem CPF completo) ou erro de rede. */
+  const [existingUserMatch, setExistingUserMatch] = useState<boolean | null>(null);
+  const [userLookupLoading, setUserLookupLoading] = useState(false);
+  const preregLookupGen = useRef(0);
 
   const loadLists = useCallback(async () => {
     if (!hasCompany) {
@@ -240,18 +245,49 @@ export default function EmployeeAutoImportPage() {
   }, [batchDetailId, tenantId, hasCompany]);
 
   useEffect(() => {
-    const raw = detailForm.personalEmail?.trim() ?? "";
-    if (!raw || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) {
-      setEmailLookupExists(null);
+    const rawEmail = detailForm.personalEmail?.trim() ?? "";
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
+    const cpfDigits = onlyDigits(detailForm.cpf ?? "");
+    const cpfValid = cpfDigits.length === 11;
+
+    if (!emailValid && !cpfValid) {
+      preregLookupGen.current += 1;
+      setExistingUserMatch(null);
+      setUserLookupLoading(false);
       return;
     }
+
+    preregLookupGen.current += 1;
+    const gen = preregLookupGen.current;
+    setUserLookupLoading(true);
     const handle = window.setTimeout(() => {
-      apiFetch<{ exists: boolean }>(`/v1/tenants/${tenantId}/employees/lookup-by-email?email=${encodeURIComponent(raw)}`)
-        .then((r) => setEmailLookupExists(r.exists))
-        .catch(() => setEmailLookupExists(null));
+      const pEmail = emailValid
+        ? apiFetch<{ exists: boolean }>(
+            `/v1/tenants/${tenantId}/employees/lookup-by-email?email=${encodeURIComponent(rawEmail)}`
+          )
+        : Promise.resolve({ exists: false });
+      const pCpf = cpfValid
+        ? apiFetch<{ exists: boolean }>(
+            `/v1/tenants/${tenantId}/employees/lookup-by-cpf?cpf=${encodeURIComponent(cpfDigits)}`
+          )
+        : Promise.resolve({ exists: false });
+
+      Promise.all([pEmail, pCpf])
+        .then(([rEmail, rCpf]) => {
+          if (gen !== preregLookupGen.current) return;
+          setExistingUserMatch(rEmail.exists || rCpf.exists);
+        })
+        .catch(() => {
+          if (gen !== preregLookupGen.current) return;
+          setExistingUserMatch(null);
+        })
+        .finally(() => {
+          if (gen !== preregLookupGen.current) return;
+          setUserLookupLoading(false);
+        });
     }, 450);
     return () => window.clearTimeout(handle);
-  }, [detailForm.personalEmail, tenantId]);
+  }, [detailForm.personalEmail, detailForm.cpf, tenantId]);
 
   function onPickFiles(event: ChangeEvent<HTMLInputElement>) {
     const list = event.target.files;
@@ -315,25 +351,31 @@ export default function EmployeeAutoImportPage() {
     }
   }
 
+  /** A API de confirmar usa só o payload gravado no servidor — precisa refletir o que está no formulário. */
+  async function persistPreregFormToServer(): Promise<void> {
+    if (!detailId) throw new Error("Pré-cadastro não encontrado.");
+    await apiFetch(`/v1/tenants/${tenantId}/employee-prereg/${detailId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        fullName: detailForm.fullName || null,
+        personalEmail: detailForm.personalEmail || null,
+        cpf: onlyDigits(detailForm.cpf ?? "") || null,
+        phone: onlyDigits(detailForm.phone ?? "") || null,
+        department: detailForm.department || null,
+        positionTitle: detailForm.positionTitle || null,
+        contractType: detailForm.contractType || null,
+        admissionDate: detailForm.admissionDate || null,
+        baseSalary: currencyToNumber(String(detailForm.baseSalary ?? "")) || null,
+        employeeTags: detailForm.employeeTags ?? []
+      })
+    });
+  }
+
   async function saveDraftFromModal() {
     if (!detailId) return;
     setDetailSaving(true);
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/employee-prereg/${detailId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          fullName: detailForm.fullName || null,
-          personalEmail: detailForm.personalEmail || null,
-          cpf: onlyDigits(detailForm.cpf ?? "") || null,
-          phone: onlyDigits(detailForm.phone ?? "") || null,
-          department: detailForm.department || null,
-          positionTitle: detailForm.positionTitle || null,
-          contractType: detailForm.contractType || null,
-          admissionDate: detailForm.admissionDate || null,
-          baseSalary: currencyToNumber(String(detailForm.baseSalary ?? "")) || null,
-          employeeTags: detailForm.employeeTags ?? []
-        })
-      });
+      await persistPreregFormToServer();
       await loadLists();
       const refreshed = await apiFetch<PreregDetail>(`/v1/tenants/${tenantId}/employee-prereg/${detailId}`);
       setDetail(refreshed);
@@ -345,39 +387,83 @@ export default function EmployeeAutoImportPage() {
   }
 
   async function execConfirmRegister() {
-    if (!detailId) return;
+    if (!detailId) {
+      setConfirmError("Sessão do pré-cadastro inválida. Feche e abra o registro novamente.");
+      return;
+    }
+    setConfirmBusy(true);
+    setConfirmError(null);
     try {
+      await persistPreregFormToServer();
       await apiFetch(`/v1/tenants/${tenantId}/employee-prereg/${detailId}/confirm-register`, { method: "POST" });
       setConfirmAction(null);
       setDetailId(null);
+      setConfirmError(null);
       await loadLists();
     } catch (e) {
-      setListError((e as Error).message);
+      const msg = (e as Error).message;
+      setConfirmError(msg);
+      setListError(msg);
+    } finally {
+      setConfirmBusy(false);
     }
   }
 
   async function execConfirmLink() {
-    if (!detailId) return;
+    if (!detailId) {
+      setConfirmError("Sessão do pré-cadastro inválida. Feche e abra o registro novamente.");
+      return;
+    }
+    setConfirmBusy(true);
+    setConfirmError(null);
     try {
+      await persistPreregFormToServer();
       await apiFetch(`/v1/tenants/${tenantId}/employee-prereg/${detailId}/confirm-link`, { method: "POST" });
       setConfirmAction(null);
       setDetailId(null);
+      setConfirmError(null);
       await loadLists();
     } catch (e) {
-      setListError((e as Error).message);
+      const msg = (e as Error).message;
+      setConfirmError(msg);
+      setListError(msg);
+    } finally {
+      setConfirmBusy(false);
     }
   }
 
   async function execDelete() {
-    if (!detailId) return;
+    if (!detailId) {
+      setConfirmError("Sessão do pré-cadastro inválida. Feche e abra o registro novamente.");
+      return;
+    }
+    setConfirmBusy(true);
+    setConfirmError(null);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/employee-prereg/${detailId}`, { method: "DELETE" });
       setConfirmAction(null);
       setDetailId(null);
+      setConfirmError(null);
       await loadLists();
     } catch (e) {
-      setListError((e as Error).message);
+      const msg = (e as Error).message;
+      setConfirmError(msg);
+      setListError(msg);
+    } finally {
+      setConfirmBusy(false);
     }
+  }
+
+  function openPreregConfirm(action: "register" | "link" | "delete") {
+    setConfirmError(null);
+    setConfirmBusy(false);
+    setConfirmAction(action);
+  }
+
+  function closePreregConfirm() {
+    setConfirmAction(null);
+    setConfirmError(null);
+    setConfirmBusy(false);
   }
 
   return (
@@ -583,7 +669,13 @@ export default function EmployeeAutoImportPage() {
 
       {detailId ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Pré-cadastro" style={{ maxWidth: 640 }}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Pré-cadastro"
+            style={{ width: "min(1100px, 100%)" }}
+          >
             <h3>Pré-cadastro</h3>
             {detailLoading ? (
               <p>Carregando…</p>
@@ -684,11 +776,13 @@ export default function EmployeeAutoImportPage() {
                   </div>
                 </div>
                 <p className="muted small">
-                  {emailLookupExists === null && (detailForm.personalEmail?.trim() ?? "").length > 0
-                    ? "Verificando e-mail…"
+                  {userLookupLoading ? "Verificando e-mail e CPF…" : null}
+                  {!userLookupLoading && existingUserMatch === false
+                    ? "Nenhuma conta com este e-mail nem com este CPF — use Cadastrar."
                     : null}
-                  {emailLookupExists === false ? "Nenhuma conta com este e-mail — use Cadastrar." : null}
-                  {emailLookupExists === true ? "Conta encontrada — use Vincular usuário." : null}
+                  {!userLookupLoading && existingUserMatch === true
+                    ? "Conta encontrada (e-mail ou CPF coincide com um usuário existente) — use Vincular usuário."
+                    : null}
                 </p>
                 <div className="row" style={{ flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
                   <button
@@ -697,7 +791,8 @@ export default function EmployeeAutoImportPage() {
                     onClick={() => {
                       setDetailId(null);
                       setDetailForm({});
-                      setEmailLookupExists(null);
+                      setExistingUserMatch(null);
+                      setUserLookupLoading(false);
                     }}
                   >
                     Fechar
@@ -705,21 +800,17 @@ export default function EmployeeAutoImportPage() {
                   <button type="submit" disabled={detailSaving}>
                     Salvar alterações
                   </button>
-                  <button
-                    type="button"
-                    disabled={emailLookupExists !== false}
-                    onClick={() => setConfirmAction("register")}
-                  >
-                    Cadastrar
-                  </button>
-                  <button
-                    type="button"
-                    disabled={emailLookupExists !== true}
-                    onClick={() => setConfirmAction("link")}
-                  >
-                    Vincular usuário
-                  </button>
-                  <button type="button" className="danger" onClick={() => setConfirmAction("delete")}>
+                  {existingUserMatch === false ? (
+                    <button type="button" onClick={() => openPreregConfirm("register")}>
+                      Cadastrar
+                    </button>
+                  ) : null}
+                  {existingUserMatch === true ? (
+                    <button type="button" onClick={() => openPreregConfirm("link")}>
+                      Vincular usuário
+                    </button>
+                  ) : null}
+                  <button type="button" className="danger" onClick={() => openPreregConfirm("delete")}>
                     Deletar pré-cadastro
                   </button>
                 </div>
@@ -780,16 +871,22 @@ export default function EmployeeAutoImportPage() {
         title="Cadastrar colaborador?"
         message="Será criada a conta (convite por e-mail, se aplicável) e o vínculo com a empresa selecionada, com os dados deste pré-cadastro."
         confirmLabel="Cadastrar"
-        onCancel={() => setConfirmAction(null)}
+        error={confirmError}
+        busy={confirmBusy}
+        busyLabel="Cadastrando…"
+        onCancel={closePreregConfirm}
         onConfirm={() => void execConfirmRegister()}
       />
 
       <ConfirmModal
         open={confirmAction === "link"}
         title="Vincular usuário existente?"
-        message="O usuário com o e-mail informado será vinculado como colaborador desta empresa e o perfil será atualizado com estes dados."
+        message="O usuário identificado pelo e-mail ou pelo CPF informado será vinculado como colaborador desta empresa e o perfil será atualizado com estes dados."
         confirmLabel="Vincular"
-        onCancel={() => setConfirmAction(null)}
+        error={confirmError}
+        busy={confirmBusy}
+        busyLabel="Vinculando…"
+        onCancel={closePreregConfirm}
         onConfirm={() => void execConfirmLink()}
       />
 
@@ -799,7 +896,10 @@ export default function EmployeeAutoImportPage() {
         message="O pré-cadastro será excluído. Nenhum usuário existente será alterado."
         confirmLabel="Deletar"
         danger
-        onCancel={() => setConfirmAction(null)}
+        error={confirmError}
+        busy={confirmBusy}
+        busyLabel="Removendo…"
+        onCancel={closePreregConfirm}
         onConfirm={() => void execDelete()}
       />
     </main>

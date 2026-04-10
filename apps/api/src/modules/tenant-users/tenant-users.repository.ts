@@ -589,43 +589,28 @@ export class TenantUsersRepository {
     if (profileError) throw profileError;
   }
 
-  async lookupEmployeeByEmail(tenantId: string, email: string): Promise<EmployeeLookupResult> {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) {
-      return {
-        exists: false,
-        userId: null,
-        email: null,
-        fullName: null,
-        cpf: null,
-        phone: null,
-        department: null,
-        positionTitle: null,
-        contractType: null,
-        admissionDate: null,
-        baseSalary: null,
-        employeeTags: []
-      };
-    }
+  private employeeLookupMissingUser(hintEmail: string | null): EmployeeLookupResult {
+    return {
+      exists: false,
+      userId: null,
+      email: hintEmail,
+      fullName: null,
+      cpf: null,
+      phone: null,
+      department: null,
+      positionTitle: null,
+      contractType: null,
+      admissionDate: null,
+      baseSalary: null,
+      employeeTags: []
+    };
+  }
 
-    const userId = await this.findUserIdByEmail(normalizedEmail);
-    if (!userId) {
-      return {
-        exists: false,
-        userId: null,
-        email: normalizedEmail,
-        fullName: null,
-        cpf: null,
-        phone: null,
-        department: null,
-        positionTitle: null,
-        contractType: null,
-        admissionDate: null,
-        baseSalary: null,
-        employeeTags: []
-      };
-    }
-
+  private async employeeLookupByResolvedUser(
+    tenantId: string,
+    userId: string,
+    candidateMatch: { type: "email"; value: string } | { type: "cpf"; value: string }
+  ): Promise<EmployeeLookupResult> {
     const { data: authUserData, error: authUserError } = await this.db.auth.admin.getUserById(userId);
     if (authUserError) throw authUserError;
     const authUser = authUserData.user;
@@ -647,11 +632,16 @@ export class TenantUsersRepository {
       .maybeSingle();
     if (candidateProfileError) throw candidateProfileError;
 
+    const candidateOr =
+      candidateMatch.type === "email"
+        ? `user_id.eq.${userId},email.eq.${candidateMatch.value}`
+        : `user_id.eq.${userId},cpf.eq.${candidateMatch.value}`;
+
     const { data: candidateData, error: candidateError } = await this.db
       .from("candidates")
       .select("full_name,email,phone,cpf,contract")
       .eq("tenant_id", tenantId)
-      .or(`user_id.eq.${userId},email.eq.${normalizedEmail}`)
+      .or(candidateOr)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -662,10 +652,12 @@ export class TenantUsersRepository {
     const candidate = (candidateData as CandidateLookupRow | null) ?? null;
     const metadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
 
+    const normalizedEmailHint = candidateMatch.type === "email" ? candidateMatch.value : null;
+
     return {
       exists: true,
       userId,
-      email: authUser?.email ?? normalizedEmail,
+      email: authUser?.email ?? normalizedEmailHint,
       fullName:
         profile?.full_name ??
         candidateProfile?.full_name ??
@@ -681,5 +673,33 @@ export class TenantUsersRepository {
       baseSalary: profile?.base_salary ?? null,
       employeeTags: profile?.employee_tags ?? []
     };
+  }
+
+  async lookupEmployeeByEmail(tenantId: string, email: string): Promise<EmployeeLookupResult> {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      return this.employeeLookupMissingUser(null);
+    }
+
+    const userId = await this.findUserIdByEmail(normalizedEmail);
+    if (!userId) {
+      return this.employeeLookupMissingUser(normalizedEmail);
+    }
+
+    return this.employeeLookupByResolvedUser(tenantId, userId, { type: "email", value: normalizedEmail });
+  }
+
+  async lookupEmployeeByCpf(tenantId: string, cpf: string): Promise<EmployeeLookupResult> {
+    const normalizedCpf = cpf.replace(/\D/g, "");
+    if (normalizedCpf.length !== 11) {
+      return this.employeeLookupMissingUser(null);
+    }
+
+    const userId = await this.findUserIdByCpf(normalizedCpf);
+    if (!userId) {
+      return this.employeeLookupMissingUser(null);
+    }
+
+    return this.employeeLookupByResolvedUser(tenantId, userId, { type: "cpf", value: normalizedCpf });
   }
 }

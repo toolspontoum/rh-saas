@@ -274,6 +274,10 @@ button.danger {
   overflow-y: auto;
 }
 
+.modal-backdrop.modal-backdrop-layer-confirm {
+  z-index: 1100;
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
