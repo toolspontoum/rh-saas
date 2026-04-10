@@ -15,6 +15,7 @@
     "./run-employee-prereg": "./src/run-employee-prereg.ts",
     "./run-payslips-ai-vercel": "./src/run-payslips-ai-vercel.ts",
     "./run-shift-assignment": "./src/run-shift-assignment.ts",
+    "./run-workforce-time-mutations": "./src/run-workforce-time-mutations.ts",
     "./run-public-jobs": "./src/run-public-jobs.ts"
   },
   "scripts": {
