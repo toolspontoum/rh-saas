@@ -3,7 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "../../config/env.js";
 import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js";
-import { kickPayslipAiLinkQueue } from "../ai/schedule.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import { DocumentsPayslipsRepository } from "./documents-payslips.repository.js";
 import type {
@@ -771,7 +770,9 @@ export class DocumentsPayslipsService {
       }))
     });
 
-    kickPayslipAiLinkQueue();
+    void import("../ai/schedule.js")
+      .then((m) => m.kickPayslipAiLinkQueue())
+      .catch((err) => console.error("[ai] kick payslip queue import failed", err));
     return { ok: true, batchId: batch.id, enqueued };
   }
 
