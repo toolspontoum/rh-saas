@@ -9,7 +9,7 @@ const listUsersSchema = z.object({
   status: z.enum(["active", "inactive", "offboarded"]).optional(),
   search: z.string().max(160).optional(),
   page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20)
+  pageSize: z.coerce.number().int().min(1).max(250).default(20)
 });
 
 const updateStatusSchema = z.object({
