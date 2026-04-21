@@ -630,6 +630,33 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** Empresas: PATCH/DELETE sem cold start do Express (504 ao salvar renome na Vercel). */
+    if (
+      (req.method === "PATCH" || req.method === "DELETE") &&
+      segments.length === 5 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "companies"
+    ) {
+      const tenantCo = segments[2] ?? "";
+      const companyCo = segments[4] ?? "";
+      const { runTenantCompaniesPatch, runTenantCompaniesDelete } = await import("@vv/api/run-tenant-writes");
+      const authCo = headerAuthorization(req);
+      if (req.method === "PATCH") {
+        const bodyCo = await readJsonBody(req);
+        const taxRaw = bodyCo.taxId;
+        const taxId =
+          taxRaw === null ? null : typeof taxRaw === "string" ? taxRaw : undefined;
+        const out = await runTenantCompaniesPatch(authCo, tenantCo, companyCo, {
+          name: typeof bodyCo.name === "string" ? bodyCo.name : undefined,
+          taxId
+        });
+        return res.status(out.status).json(out.body);
+      }
+      const outDel = await runTenantCompaniesDelete(authCo, tenantCo, companyCo);
+      return res.status(outDel.status).json(outDel.body);
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {

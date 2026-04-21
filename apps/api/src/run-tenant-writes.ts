@@ -132,3 +132,48 @@ export async function runTenantCompaniesPost(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+/** PATCH /v1/tenants/:tenantId/companies/:companyId */
+export async function runTenantCompaniesPatch(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  companyId: string,
+  body: { name?: string; taxId?: string | null }
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  try {
+    const result = await tenantCompaniesHandlers.update({
+      tenantId,
+      userId: s.userId,
+      companyId,
+      name: body.name,
+      taxId: body.taxId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** DELETE /v1/tenants/:tenantId/companies/:companyId */
+export async function runTenantCompaniesDelete(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  companyId: string
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  try {
+    const result = await tenantCompaniesHandlers.delete({
+      tenantId,
+      userId: s.userId,
+      companyId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}

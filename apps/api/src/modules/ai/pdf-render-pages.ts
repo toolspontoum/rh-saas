@@ -1,7 +1,17 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, DOMMatrix, Path2D } from "@napi-rs/canvas";
+
+// pdfjs-dist 5.x usa DOMMatrix/Path2D (APIs do browser); no Node não existem por omissão.
+type NodeCanvasGeom = { DOMMatrix?: typeof DOMMatrix; Path2D?: typeof Path2D };
+const globalWithGeom = globalThis as typeof globalThis & NodeCanvasGeom;
+if (typeof globalWithGeom.DOMMatrix === "undefined") {
+  globalWithGeom.DOMMatrix = DOMMatrix;
+}
+if (typeof globalWithGeom.Path2D === "undefined") {
+  globalWithGeom.Path2D = Path2D;
+}
 
 type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 
