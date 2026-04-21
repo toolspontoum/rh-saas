@@ -24,7 +24,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ tenantId: string; companyId: string }> }
 ) {
   const { tenantId, companyId } = await context.params;

@@ -1,4 +1,4 @@
-export type AppRole = "owner" | "admin" | "manager" | "analyst" | "employee" | "viewer";
+export type AppRole = "owner" | "admin" | "manager" | "analyst" | "employee" | "viewer" | "preposto";
 
 export type TenantSummary = {
   tenantId: string;
@@ -7,11 +7,15 @@ export type TenantSummary = {
   legalName: string;
   isActive: boolean;
   roles: AppRole[];
+  /** Quando o utilizador é preposto neste tenant, o id do contrato (empresa/projeto). */
+  prepostoCompanyId?: string | null;
 };
 
 export type TenantContext = {
   tenantId: string;
   roles: AppRole[];
+  /** Contrato (empresa/projeto) em que o utilizador é preposto; null se não aplicável. */
+  prepostoCompanyId: string | null;
   features: Array<{
     code: string;
     isEnabled: boolean;

@@ -213,8 +213,16 @@ export default function EmployeeAutoImportPage() {
       return;
     }
     setDetailLoading(true);
+    setDetail(null);
+    setDetailForm({});
+    setExistingUserMatch(null);
+    setUserLookupLoading(false);
+    preregLookupGen.current += 1;
+
+    let cancelled = false;
     apiFetch<PreregDetail>(`/v1/tenants/${tenantId}/employee-prereg/${detailId}`)
       .then((d) => {
+        if (cancelled) return;
         setDetail(d);
         setDetailForm({
           fullName: d.payload.fullName ?? "",
@@ -229,8 +237,16 @@ export default function EmployeeAutoImportPage() {
           employeeTags: d.payload.employeeTags ?? []
         });
       })
-      .catch((e: Error) => setListError(e.message))
-      .finally(() => setDetailLoading(false));
+      .catch((e: Error) => {
+        if (!cancelled) setListError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [detailId, tenantId, hasCompany]);
 
   useEffect(() => {
@@ -259,16 +275,19 @@ export default function EmployeeAutoImportPage() {
 
     preregLookupGen.current += 1;
     const gen = preregLookupGen.current;
+    const abort = new AbortController();
     setUserLookupLoading(true);
     const handle = window.setTimeout(() => {
       const pEmail = emailValid
         ? apiFetch<{ exists: boolean }>(
-            `/v1/tenants/${tenantId}/employees/lookup-by-email?email=${encodeURIComponent(rawEmail)}`
+            `/v1/tenants/${tenantId}/employees/lookup-by-email?email=${encodeURIComponent(rawEmail)}`,
+            { signal: abort.signal }
           )
         : Promise.resolve({ exists: false });
       const pCpf = cpfValid
         ? apiFetch<{ exists: boolean }>(
-            `/v1/tenants/${tenantId}/employees/lookup-by-cpf?cpf=${encodeURIComponent(cpfDigits)}`
+            `/v1/tenants/${tenantId}/employees/lookup-by-cpf?cpf=${encodeURIComponent(cpfDigits)}`,
+            { signal: abort.signal }
           )
         : Promise.resolve({ exists: false });
 
@@ -277,8 +296,11 @@ export default function EmployeeAutoImportPage() {
           if (gen !== preregLookupGen.current) return;
           setExistingUserMatch(rEmail.exists || rCpf.exists);
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           if (gen !== preregLookupGen.current) return;
+          const name =
+            err instanceof DOMException ? err.name : err instanceof Error ? err.name : "";
+          if (name === "AbortError") return;
           setExistingUserMatch(null);
         })
         .finally(() => {
@@ -286,7 +308,11 @@ export default function EmployeeAutoImportPage() {
           setUserLookupLoading(false);
         });
     }, 450);
-    return () => window.clearTimeout(handle);
+    return () => {
+      window.clearTimeout(handle);
+      abort.abort();
+      setUserLookupLoading(false);
+    };
   }, [detailForm.personalEmail, detailForm.cpf, tenantId]);
 
   function onPickFiles(event: ChangeEvent<HTMLInputElement>) {

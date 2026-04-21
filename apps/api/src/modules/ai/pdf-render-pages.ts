@@ -7,10 +7,10 @@ import { createCanvas, DOMMatrix, Path2D } from "@napi-rs/canvas";
 type NodeCanvasGeom = { DOMMatrix?: typeof DOMMatrix; Path2D?: typeof Path2D };
 const globalWithGeom = globalThis as typeof globalThis & NodeCanvasGeom;
 if (typeof globalWithGeom.DOMMatrix === "undefined") {
-  globalWithGeom.DOMMatrix = DOMMatrix;
+  globalWithGeom.DOMMatrix = DOMMatrix as NodeCanvasGeom["DOMMatrix"];
 }
 if (typeof globalWithGeom.Path2D === "undefined") {
-  globalWithGeom.Path2D = Path2D;
+  globalWithGeom.Path2D = Path2D as NodeCanvasGeom["Path2D"];
 }
 
 type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");

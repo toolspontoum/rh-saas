@@ -1293,6 +1293,33 @@ apiRouter.patch("/v1/tenants/:tenantId/companies/:companyId", requireAuth, async
   }
 });
 
+apiRouter.put("/v1/tenants/:tenantId/companies/:companyId/preposto", requireAuth, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { userId?: unknown };
+    if (!("userId" in body)) {
+      return res.status(400).json({
+        error: "INVALID_BODY",
+        message: "Envie userId (uuid do colaborador ou null para remover)."
+      });
+    }
+    const raw = body.userId;
+    const prepostoUserId = raw === null ? null : typeof raw === "string" ? raw : undefined;
+    if (prepostoUserId === undefined && raw !== null) {
+      return res.status(400).json({ error: "INVALID_BODY", message: "userId deve ser uuid ou null." });
+    }
+    const result = await tenantCompaniesHandlers.setPreposto({
+      tenantId: req.params.tenantId,
+      userId: (req as AuthenticatedRequest).auth.userId,
+      companyId: req.params.companyId,
+      prepostoUserId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.delete("/v1/tenants/:tenantId/companies/:companyId", requireAuth, async (req, res) => {
   try {
     const result = await tenantCompaniesHandlers.delete({

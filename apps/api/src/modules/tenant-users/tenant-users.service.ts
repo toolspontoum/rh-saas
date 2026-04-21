@@ -30,8 +30,9 @@ export class TenantUsersService {
   }): Promise<string | null> {
     if (input.companyId) return input.companyId;
     const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const privileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
-    if (privileged) return null;
+    const companyPrivileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    if (!companyPrivileged && ctx.prepostoCompanyId) return ctx.prepostoCompanyId;
+    if (companyPrivileged) return null;
     return this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
   }
 
@@ -48,7 +49,8 @@ export class TenantUsersService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     const listCompanyId = await this.resolveTenantUsersListCompanyId(input);
     return this.repository.listUsers({

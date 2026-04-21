@@ -1,8 +1,14 @@
+import { randomUUID } from "node:crypto";
+
 import cors from "cors";
 import express from "express";
 import type { ErrorRequestHandler } from "express";
 
 import { env } from "./config/env.js";
+
+const API_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=()";
+
+const API_JSON_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
 
 /** Carregar em paralelo ao primeiro pedido (não no bundle inicial do createApp) — reduz cold start na Vercel. */
 let liteRouterPromise: Promise<import("express").Router> | null = null;
@@ -50,7 +56,9 @@ export type CreateAppOptions = {
 
 export function createApp(options?: CreateAppOptions): express.Application {
   const app = express();
-  const allowedOrigins = env.WEB_ALLOWED_ORIGINS.split(",").map((item) => item.trim());
+  const allowedOrigins = env.WEB_ALLOWED_ORIGINS.split(",")
+    .map((item) => item.trim())
+    .filter((origin) => origin.length > 0 && origin !== "*");
 
   if (options?.stripApiPrefix) {
     const prefix = options.stripApiPrefix;
@@ -62,9 +70,32 @@ export function createApp(options?: CreateAppOptions): express.Application {
     });
   }
 
+  app.use((req, res, next) => {
+    const incoming = req.get("x-correlation-id")?.trim();
+    const correlationId = incoming && incoming.length > 0 ? incoming : randomUUID();
+    res.setHeader("X-Correlation-Id", correlationId);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", API_PERMISSIONS_POLICY);
+    res.setHeader("X-XSS-Protection", "0");
+    res.setHeader("Content-Security-Policy", API_JSON_CSP);
+    next();
+  });
+
   app.use(
     cors({
-      origin: allowedOrigins,
+      origin(origin, callback) {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (allowedOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
+      },
       credentials: true
     })
   );

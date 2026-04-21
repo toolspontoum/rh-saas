@@ -39,7 +39,6 @@ export default function NewSpecificNoticePage() {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`)
@@ -157,31 +156,6 @@ export default function NewSpecificNoticePage() {
     }
   }
 
-  function toDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(new Error("Falha ao processar a imagem."));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function onInsertImageInBody(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Selecione um arquivo de imagem para inserir no corpo do comunicado.");
-      return;
-    }
-    try {
-      const dataUrl = await toDataUrl(file);
-      setMessage((current) => `${current}<p><img src="${dataUrl}" alt="Imagem do comunicado" /></p>`);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
   function onAddAttachmentFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     event.currentTarget.value = "";
@@ -192,7 +166,6 @@ export default function NewSpecificNoticePage() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setOkMsg(null);
     if (selectedRecipients.length === 0) {
       setError("Selecione ao menos um destinatário.");
       return;
@@ -227,20 +200,42 @@ export default function NewSpecificNoticePage() {
       />
       <h1>Novo comunicado específico</h1>
       {error ? <p className="error">{error}</p> : null}
-      {okMsg ? <p>{okMsg}</p> : null}
       <div className="card stack">
         <form className="stack" onSubmit={onSubmit}>
           <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Título do comunicado" />
-          <RichTextEditor value={message} onChange={setMessage} placeholder="Escreva o comunicado" />
-          <div className="row">
-            <label className="btn secondary" style={{ cursor: "pointer" }}>
-              Inserir imagem no corpo
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={onInsertImageInBody} />
-            </label>
-            <label className="btn secondary" style={{ cursor: "pointer" }}>
-              Adicionar anexo
-              <input type="file" multiple style={{ display: "none" }} onChange={onAddAttachmentFiles} />
-            </label>
+          <div className="notice-editor-section">
+            <RichTextEditor
+              className="notice-body-editor"
+              value={message}
+              onChange={setMessage}
+              placeholder="Escreva o comunicado"
+            />
+            <div className="notice-attachments-field stack">
+              <label htmlFor="notice-specific-attachments">Anexos (opcional)</label>
+              <input
+                id="notice-specific-attachments"
+                type="file"
+                multiple
+                onChange={onAddAttachmentFiles}
+              />
+              {pendingAttachments.length > 0 ? (
+                <div className="card stack" style={{ marginTop: 4 }}>
+                  <strong style={{ fontSize: 14 }}>Arquivos selecionados</strong>
+                  {pendingAttachments.map((item) => (
+                    <div key={item.tempId} className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{item.file.name}</span>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => setPendingAttachments((current) => current.filter((x) => x.tempId !== item.tempId))}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="card stack">
             <h4>Destinatários específicos</h4>

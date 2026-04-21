@@ -16,7 +16,7 @@ export async function runPayslipBatchesListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.listPayslipAiBatches({
@@ -41,7 +41,7 @@ export async function runPayslipUploadIntentPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.createPayslipUploadIntent({
@@ -68,7 +68,7 @@ export async function runPayslipConfirmAiBulkPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.confirmAiBulkPayslips({

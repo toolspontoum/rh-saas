@@ -72,7 +72,7 @@ export default function TenantAccountPage() {
           supabase.auth.getUser()
         ]);
         if (cancelled) return;
-        const management = ctx.roles.some((r) => ["owner", "admin", "manager"].includes(r));
+        const management = ctx.roles.some((r) => ["owner", "admin", "manager", "preposto"].includes(r));
         if (!management) {
           router.replace(`/tenants/${tenantId}/dashboard`);
           return;

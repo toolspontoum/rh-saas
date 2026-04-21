@@ -37,8 +37,9 @@ export class RecruitmentService {
   }): Promise<string | null> {
     if (input.companyId) return input.companyId;
     const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const privileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
-    if (privileged) return null;
+    const companyPrivileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    if (!companyPrivileged && ctx.prepostoCompanyId) return ctx.prepostoCompanyId;
+    if (companyPrivileged) return null;
     return this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
   }
 
@@ -64,6 +65,13 @@ export class RecruitmentService {
   }): Promise<PaginationResult<Job>> {
     const { userId, tenantId, status, title, page, pageSize } = input;
     await this.authTenantService.assertFeatureEnabled(userId, tenantId, "mod_recruitment");
+    await this.authTenantService.assertUserHasAnyRole(userId, tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
     const listCompanyId = await this.resolveJobsListCompanyId(input);
     return this.repository.listJobs({ tenantId, companyId: listCompanyId, status, title, page, pageSize });
   }
@@ -75,6 +83,13 @@ export class RecruitmentService {
     jobId: string;
   }): Promise<Job> {
     await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_recruitment");
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
     const listCompanyId = await this.resolveJobsListCompanyId(input);
     const job = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
     if (!job) throw new Error("JOB_NOT_FOUND");
@@ -256,7 +271,8 @@ export class RecruitmentService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);
@@ -487,7 +503,8 @@ export class RecruitmentService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);
@@ -518,7 +535,8 @@ export class RecruitmentService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);
@@ -543,7 +561,8 @@ export class RecruitmentService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);

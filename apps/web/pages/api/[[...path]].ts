@@ -657,6 +657,23 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(outDel.status).json(outDel.body);
     }
 
+    if (
+      req.method === "PUT" &&
+      segments.length === 6 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "companies" &&
+      segments[5] === "preposto"
+    ) {
+      const tenantPr = segments[2] ?? "";
+      const companyPr = segments[4] ?? "";
+      const { runTenantCompanyPrepostoPut } = await import("@vv/api/run-tenant-writes");
+      const authPr = headerAuthorization(req);
+      const bodyPr = await readJsonBody(req);
+      const outPr = await runTenantCompanyPrepostoPut(authPr, tenantPr, companyPr, bodyPr);
+      return res.status(outPr.status).json(outPr.body);
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {

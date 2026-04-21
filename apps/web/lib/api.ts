@@ -34,7 +34,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       ...init,
       headers
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     throw new Error("Falha de conexão com a API. Verifique se o servidor está ativo.");
   }
 

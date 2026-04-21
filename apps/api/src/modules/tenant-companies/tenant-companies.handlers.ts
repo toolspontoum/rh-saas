@@ -28,6 +28,13 @@ const deleteSchema = z.object({
   companyId: z.string().uuid()
 });
 
+const setPrepostoSchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid(),
+  prepostoUserId: z.string().uuid().nullable()
+});
+
 export class TenantCompaniesHandlers {
   constructor(private readonly service: TenantCompaniesService) {}
 
@@ -60,5 +67,15 @@ export class TenantCompaniesHandlers {
   async delete(input: unknown) {
     const payload = deleteSchema.parse(input);
     return this.service.delete(payload);
+  }
+
+  async setPreposto(input: unknown) {
+    const payload = setPrepostoSchema.parse(input);
+    return this.service.setPreposto({
+      userId: payload.userId,
+      tenantId: payload.tenantId,
+      companyId: payload.companyId,
+      prepostoUserId: payload.prepostoUserId
+    });
   }
 }

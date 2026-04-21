@@ -11,6 +11,7 @@ type TenantCompany = {
   tenantId: string;
   name: string;
   taxId: string | null;
+  prepostoUserId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

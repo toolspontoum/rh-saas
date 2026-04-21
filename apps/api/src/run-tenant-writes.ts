@@ -16,7 +16,7 @@ export async function runTenantEmployeesPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await tenantUsersHandlers.upsertEmployee({
@@ -44,7 +44,7 @@ export async function runTenantBackofficeUsersPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await tenantUsersHandlers.upsertBackofficeUser({
@@ -85,7 +85,7 @@ export async function runTenantEmployeeProfilePut(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.upsertEmployeeProfile({
@@ -170,6 +170,40 @@ export async function runTenantCompaniesDelete(
       tenantId,
       userId: s.userId,
       companyId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** PUT /v1/tenants/:tenantId/companies/:companyId/preposto */
+export async function runTenantCompanyPrepostoPut(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  companyId: string,
+  body: { userId?: unknown }
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  if (!("userId" in body)) {
+    return {
+      status: 400,
+      body: { error: "INVALID_BODY", message: "Envie userId (uuid do colaborador ou null para remover)." }
+    };
+  }
+  const raw = body.userId;
+  const prepostoUserId = raw === null ? null : typeof raw === "string" ? raw : undefined;
+  if (prepostoUserId === undefined && raw !== null) {
+    return { status: 400, body: { error: "INVALID_BODY", message: "userId deve ser uuid ou null." } };
+  }
+  try {
+    const result = await tenantCompaniesHandlers.setPreposto({
+      tenantId,
+      userId: s.userId,
+      companyId,
+      prepostoUserId
     });
     return { status: 200, body: result };
   } catch (error) {

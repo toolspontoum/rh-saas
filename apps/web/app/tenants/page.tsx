@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "../../lib/api";
 import { clearToken, getToken } from "../../lib/auth";
 import { formatRoleList } from "../../lib/role-labels";
+import { setStoredTenantCompanyId } from "../../lib/tenant-company-scope";
 
 type TenantSummary = {
   tenantId: string;
@@ -14,6 +15,7 @@ type TenantSummary = {
   displayName: string;
   legalName: string;
   roles: string[];
+  prepostoCompanyId?: string | null;
 };
 
 export default function TenantsPage() {
@@ -70,10 +72,21 @@ export default function TenantsPage() {
             <p className="muted">
               {tenant.legalName} | perfis: {formatRoleList(tenant.roles)}
             </p>
-            <div className="row">
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
               <Link href={`/tenants/${tenant.tenantId}`}>
                 <button>Abrir modulo</button>
               </Link>
+              {tenant.prepostoCompanyId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStoredTenantCompanyId(tenant.tenantId, tenant.prepostoCompanyId!);
+                    router.push(`/tenants/${tenant.tenantId}/dashboard`);
+                  }}
+                >
+                  Gestão do projeto
+                </button>
+              ) : null}
             </div>
           </div>
         ))}

@@ -1,15 +1,17 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { NextConfig } from "next";
+
+import { buildSecurityHeadersForNext } from "./lib/security/http-security-headers";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true
   },
   reactStrictMode: true,
-  // Monorepo: evita aviso de múltiplos lockfiles ao rodar `npm run dev` da raiz
   outputFileTracingRoot: path.join(__dirname, "..", ".."),
   transpilePackages: ["@vv/api"],
   serverExternalPackages: [
@@ -19,11 +21,15 @@ const nextConfig = {
     "express",
     "serverless-http"
   ],
-  // Pacote @vv/api usa imports ESM com sufixo .js apontando para ficheiros .ts (NodeNext).
-  // Módulos nativos (.node) não podem ser empacotados pelo webpack.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: buildSecurityHeadersForNext()
+      }
+    ];
+  },
   webpack: (config, { isServer }) => {
-    // Na Vercel só existe npm install em apps/web; imports em ../api resolvem node_modules
-    // a partir de apps/api (vazio). Priorizar apps/web/node_modules.
     const webNM = path.resolve(__dirname, "node_modules");
     config.resolve.modules = [
       webNM,
@@ -34,7 +40,10 @@ const nextConfig = {
       ".mjs": [".mts", ".mjs"]
     };
     if (isServer) {
-      config.externals.push(function canvasExternals({ request }, callback) {
+      config.externals.push(function canvasExternals(
+        { request }: { request?: string },
+        callback: (err?: Error | null, result?: string) => void
+      ) {
         if (
           request &&
           (request.startsWith("@napi-rs/canvas") ||
@@ -51,4 +60,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

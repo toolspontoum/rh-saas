@@ -1,15 +1,69 @@
-import { supabaseAdmin } from "./lib/supabase.js";
+import { supabaseAdmin, supabaseAnon } from "./lib/supabase.js";
 import { isUuid } from "./modules/platform/platform.slugify.js";
 
 export type CompanyScopeResult =
   | { ok: true; companyId: string | null }
   | { ok: false; status: number; body: Record<string, unknown> };
 
-/** Replica `resolveTenantCompanyScope` (Express) para handlers run-* sem carregar routes.js. */
+function extractBearer(header: string | null | undefined): string | null {
+  if (!header) return null;
+  const [scheme, token] = header.split(" ");
+  if (scheme?.toLowerCase() !== "bearer" || !token) return null;
+  return token;
+}
+
+async function findPrepostoCompanyForUser(tenantId: string, userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("tenant_companies")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("preposto_user_id", userId)
+    .maybeSingle();
+  if (error) return null;
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+export type ResolveCompanyScopeActor = {
+  authorizationHeader?: string | null;
+  actorUserId?: string | null;
+};
+
+/**
+ * Resolve o escopo de empresa/projeto.
+ * Preposto: fica sempre restrito ao contrato atribuído (ignora "Todas" no painel).
+ */
 export async function resolveCompanyScopeFromHeader(
   tenantId: string,
-  xTenantCompanyId: string | null | undefined
+  xTenantCompanyId: string | null | undefined,
+  actor?: ResolveCompanyScopeActor | null
 ): Promise<CompanyScopeResult> {
+  let userId = actor?.actorUserId ?? null;
+  if (!userId && actor?.authorizationHeader) {
+    const token = extractBearer(actor.authorizationHeader);
+    if (token) {
+      const { data } = await supabaseAnon.auth.getUser(token);
+      if (data.user?.id) userId = data.user.id;
+    }
+  }
+
+  if (userId) {
+    const forced = await findPrepostoCompanyForUser(tenantId, userId);
+    if (forced) {
+      const raw = xTenantCompanyId?.trim() ?? "";
+      if (raw && raw !== forced) {
+        return {
+          ok: false,
+          status: 403,
+          body: {
+            error: "PREPOSTO_SCOPE_MISMATCH",
+            message: "Preposto so pode aceder ao contrato para o qual foi designado."
+          }
+        };
+      }
+      return { ok: true, companyId: forced };
+    }
+  }
+
   const raw = xTenantCompanyId?.trim() ?? "";
   if (!raw) return { ok: true, companyId: null };
   if (!isUuid(raw)) {

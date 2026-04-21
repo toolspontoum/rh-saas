@@ -19,7 +19,7 @@ export async function runTenantEmployeeProfileGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.getEmployeeProfile({
@@ -49,7 +49,7 @@ export async function runTenantJobsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await recruitmentHandlers.listJobs({
@@ -119,7 +119,7 @@ export async function runTenantRecruitmentApplicationsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await recruitmentHandlers.listTenantApplications({
@@ -152,7 +152,7 @@ export async function runTenantTimeEntriesListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listTimeEntries({
@@ -185,7 +185,7 @@ export async function runTenantTimeAdjustmentsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listAdjustments({
@@ -213,7 +213,7 @@ export async function runTenantWorkRulesGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.getWorkRule({
@@ -237,7 +237,7 @@ export async function runTenantTimeReportsSummaryGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.getReportSummary({
@@ -264,7 +264,7 @@ export async function runTenantNoticesListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listNotices({
@@ -300,7 +300,7 @@ export async function runTenantPayslipsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.listPayslips({
@@ -348,7 +348,7 @@ export async function runTenantOncallShiftsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listOncallShifts({
@@ -386,7 +386,7 @@ export async function runTenantOncallShiftByIdGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.getOncallShiftById({
@@ -410,7 +410,7 @@ export async function runTenantShiftTemplatesListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listShiftTemplates({
@@ -434,7 +434,7 @@ export async function runTenantTimeReportsClosuresListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listTimeReportClosures({
@@ -481,7 +481,7 @@ export async function runTenantAuditLogsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await auditLogsHandlers.list({
@@ -511,7 +511,7 @@ export async function runTenantDocumentRequestsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.listDocumentRequests({
@@ -541,7 +541,7 @@ export async function runTenantDocumentsListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.listDocuments({
@@ -572,7 +572,7 @@ export async function runTenantDocumentOpenGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await documentsPayslipsHandlers.openDocument({

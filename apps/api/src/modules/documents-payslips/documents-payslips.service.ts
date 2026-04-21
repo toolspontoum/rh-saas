@@ -142,7 +142,8 @@ export class DocumentsPayslipsService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     }
     return this.repository.listDocuments({
@@ -272,7 +273,9 @@ export class DocumentsPayslipsService {
   }): Promise<PaginatedResult<DocumentRequestRecord>> {
     await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_documents");
     const tenantContext = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const isManager = tenantContext.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isManager = tenantContext.roles.some((role) =>
+      ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+    );
     if (!isManager) {
       return this.repository.listDocumentRequests({
         ...input,
@@ -303,7 +306,9 @@ export class DocumentsPayslipsService {
       throw new Error("DOCUMENT_REQUEST_NOT_FOUND");
     }
     const tenantContext = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const isManager = tenantContext.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isManager = tenantContext.roles.some((role) =>
+      ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+    );
     if (!isManager && !(await this.isUserDocumentRequestRecipient(input.tenantId, input.userId, request))) {
       throw new Error("ROLE_NOT_ALLOWED");
     }
@@ -354,7 +359,9 @@ export class DocumentsPayslipsService {
     }
 
     const tenantContext = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const isManager = tenantContext.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isManager = tenantContext.roles.some((role) =>
+      ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+    );
     if (!isManager && !(await this.isUserDocumentRequestRecipient(input.tenantId, input.userId, request))) {
       throw new Error("ROLE_NOT_ALLOWED");
     }
@@ -404,7 +411,7 @@ export class DocumentsPayslipsService {
       throw new Error("DOCUMENT_NOT_FOUND");
     }
 
-    const privilegedRoles = new Set(["owner", "admin", "manager", "analyst"]);
+    const privilegedRoles = new Set(["owner", "admin", "manager", "analyst", "preposto"]);
     const canOpenAnyDocument = tenantContext.roles.some((role) => privilegedRoles.has(role));
     const canOpenOwnDocument = await this.userCanAccessOwnDocument(input.tenantId, input.userId, document);
     if (!canOpenAnyDocument && !canOpenOwnDocument) {
@@ -476,7 +483,8 @@ export class DocumentsPayslipsService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     }
     return this.repository.listPayslips({
@@ -683,7 +691,8 @@ export class DocumentsPayslipsService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     return this.repository.listPayslipAiBatches({
       tenantId: input.tenantId,
@@ -704,7 +713,8 @@ export class DocumentsPayslipsService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     const batch = await this.repository.findPayslipBatchById({
       tenantId: input.tenantId,
@@ -805,7 +815,7 @@ export class DocumentsPayslipsService {
       throw new Error("PAYSLIP_NOT_FOUND");
     }
 
-    const privilegedRoles = new Set(["owner", "admin", "manager", "analyst"]);
+    const privilegedRoles = new Set(["owner", "admin", "manager", "analyst", "preposto"]);
     const canOpenAnyPayslip = tenantContext.roles.some((role) => privilegedRoles.has(role));
     const canOpenOwnPayslip = payslip.employeeUserId === input.userId || payslip.uploadedBy === input.userId;
     if (!canOpenAnyPayslip && !canOpenOwnPayslip) {
@@ -839,7 +849,8 @@ export class DocumentsPayslipsService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     return this.repository.updatePayslipReferenceMonth(input);
   }

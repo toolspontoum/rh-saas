@@ -6,6 +6,7 @@ export type TenantCompanyDto = {
   tenantId: string;
   name: string;
   taxId: string | null;
+  prepostoUserId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -16,6 +17,7 @@ function mapRow(row: TenantCompanyRow): TenantCompanyDto {
     tenantId: row.tenant_id,
     name: row.name,
     taxId: row.tax_id,
+    prepostoUserId: row.preposto_user_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -33,8 +35,20 @@ export class TenantCompaniesService {
       "admin",
       "manager",
       "analyst",
-      "viewer"
+      "viewer",
+      "preposto"
     ]);
+    const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+    const companyPrivileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    const isViewer = ctx.roles.includes("viewer");
+    const prepostoRestricted =
+      ctx.roles.includes("preposto") && !companyPrivileged && !isViewer;
+    if (prepostoRestricted) {
+      if (!ctx.prepostoCompanyId) return [];
+      const row = await this.repository.findInTenant(input.tenantId, ctx.prepostoCompanyId);
+      return row ? [mapRow(row)] : [];
+    }
+    if (!companyPrivileged && !isViewer) return [];
     const rows = await this.repository.listByTenant(input.tenantId);
     return rows.map(mapRow);
   }
@@ -82,5 +96,51 @@ export class TenantCompaniesService {
     if (all.length <= 1) throw new Error("TENANT_COMPANY_LAST_ONE");
     await this.repository.deleteIfEmpty(input.tenantId, input.companyId);
     return { ok: true };
+  }
+
+  /** Define ou remove o preposto do contrato (colaborador já vinculado à empresa/projeto). */
+  async setPreposto(input: {
+    userId: string;
+    tenantId: string;
+    companyId: string;
+    prepostoUserId: string | null;
+  }): Promise<TenantCompanyDto> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, ["owner", "admin", "manager"]);
+    const existing = await this.repository.findInTenant(input.tenantId, input.companyId);
+    if (!existing) throw new Error("TENANT_COMPANY_NOT_FOUND");
+
+    const previousId = existing.preposto_user_id ?? null;
+
+    if (input.prepostoUserId) {
+      const ok = await this.repository.userHasProfileInCompany(
+        input.tenantId,
+        input.companyId,
+        input.prepostoUserId
+      );
+      if (!ok) throw new Error("USER_NOT_IN_COMPANY");
+      await this.repository.clearPrepostoUserExceptCompany(input.tenantId, input.prepostoUserId, input.companyId);
+    }
+
+    const row = await this.repository.setPrepostoUserId(input.tenantId, input.companyId, input.prepostoUserId);
+
+    if (input.prepostoUserId) {
+      await this.repository.upsertPrepostoRole(input.tenantId, input.prepostoUserId);
+    }
+
+    if (previousId && previousId !== input.prepostoUserId) {
+      const remainingPrev = await this.repository.countPrepostoAssignmentsForUser(input.tenantId, previousId);
+      if (remainingPrev === 0) {
+        await this.repository.deletePrepostoRole(input.tenantId, previousId);
+      }
+    }
+
+    if (!input.prepostoUserId && previousId) {
+      const remainingPrev = await this.repository.countPrepostoAssignmentsForUser(input.tenantId, previousId);
+      if (remainingPrev === 0) {
+        await this.repository.deletePrepostoRole(input.tenantId, previousId);
+      }
+    }
+
+    return mapRow(row);
   }
 }

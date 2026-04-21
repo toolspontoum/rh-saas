@@ -14,7 +14,7 @@ export async function runTimeEntryPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.createTimeEntry({
@@ -44,7 +44,7 @@ export async function runTimeEntryPatch(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.updateTimeEntry({
@@ -71,7 +71,7 @@ export async function runTimeEntryChangeLogsGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.listTimeEntryChangeLogs({
@@ -96,7 +96,7 @@ export async function runTimeAdjustmentPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.createAdjustment({
@@ -127,7 +127,7 @@ export async function runTimeAdjustmentReviewPatch(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.reviewAdjustment({
@@ -154,7 +154,7 @@ export async function runTimeReportClosurePost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.closeMonthlyReport({
@@ -180,7 +180,7 @@ export async function runTimeReportClosureGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await workforceHandlers.getTimeReportClosure({

@@ -16,7 +16,8 @@
     "./run-payslips-ai-vercel": "./src/run-payslips-ai-vercel.ts",
     "./run-shift-assignment": "./src/run-shift-assignment.ts",
     "./run-workforce-time-mutations": "./src/run-workforce-time-mutations.ts",
-    "./run-public-jobs": "./src/run-public-jobs.ts"
+    "./run-public-jobs": "./src/run-public-jobs.ts",
+    "./run-http-job-ai-tick": "./src/run-http-job-ai-tick.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

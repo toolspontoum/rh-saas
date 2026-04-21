@@ -570,14 +570,36 @@ button.employer-card:hover {
   min-height: 12em;
 }
 
-.notice-mass-editor .ql-container {
+/* Comunicados: evita .ql-editor height:100% do Quill sobrepor o bloco de anexos abaixo */
+.notice-body-editor .ql-container {
   height: auto;
   min-height: 0;
 }
 
-.notice-mass-editor .ql-editor {
+.notice-body-editor .ql-editor {
   line-height: 1.5;
-  min-height: 22.5em;
+  height: auto;
+  min-height: 20em;
+}
+
+.notice-editor-section {
+  display: grid;
+  gap: 12px;
+}
+
+.notice-attachments-field {
+  position: relative;
+  z-index: 1;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.notice-attachments-field > label {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
 }
 
 .job-apply-actions {

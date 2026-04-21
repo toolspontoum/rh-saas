@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.97",
@@ -32,6 +33,7 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "vitest": "^3.2.4",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",

@@ -1,0 +1,29 @@
+---
+description: Desenvolvimento local primeiro; produção só sob comando explícito
+alwaysApply: true
+---
+
+# Fluxo de deploy (VV Consulting)
+
+## Padrão obrigatório
+
+- **Todas as alterações, correções e testes** devem ser feitos e validados **apenas no ambiente local** (código no repositório + `npm run dev`, variáveis em `.env` local, Supabase de dev/staging conforme doc do projeto).
+- **Não publicar em produção** por iniciativa própria: não rodar deploy para produção na Vercel, não configurar CI para deploy automático em `main`/produção, nem sugerir comandos de produção como passo “padrão” após um fix — a menos que o usuário **peça explicitamente** deploy para produção ou cite o comando/comando de release acordado.
+
+## O que fazer quando o usuário pedir deploy para produção
+
+- Aí sim orientar ou usar o fluxo documentado em `docs/deploy-fluxo.md` (Vercel, variáveis de ambiente, branch).
+- Confirmar que testes locais (e staging, se existir) passaram antes de produção, se o usuário não tiver dito o contrário.
+
+## Ambiente de teste (staging)
+
+- Diferenciar **Preview / staging** de **Production** no painel da Vercel (variáveis por ambiente; URLs de preview por branch/PR).
+- Backend/dados: preferir **projeto Supabase separado** para staging ou recurso de branch do Supabase, documentado no time — nunca apontar staging para o banco de produção sem decisão explícita.
+
+## Resumo
+
+| Onde | Quando |
+|------|--------|
+| Local | Sempre, por padrão |
+| Staging / Preview | Validação antes de prod (opcional mas recomendado) |
+| Produção | Somente quando o usuário solicitar deploy ou comando explícito de release |

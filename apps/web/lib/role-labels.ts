@@ -6,6 +6,7 @@ export function roleLabel(role: string): string {
   if (normalized === "analyst") return "Analista";
   if (normalized === "employee") return "Colaborador";
   if (normalized === "viewer") return "Visualizador";
+  if (normalized === "preposto") return "Preposto";
   if (!normalized) return "-";
   return role;
 }

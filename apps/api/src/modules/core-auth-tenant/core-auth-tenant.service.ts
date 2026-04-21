@@ -13,13 +13,14 @@ export class CoreAuthTenantService {
 
   async listTenantsForUser(userId: string, email: string | null): Promise<TenantSummary[]> {
     const direct = await this.repository.listTenantRolesForUser(userId);
+    const withPreposto = await this.attachPrepostoCompanies(userId, direct);
 
     if (!(await isPlatformAdminUser(userId, email))) {
-      return direct;
+      return withPreposto;
     }
 
     const all = await this.platformRepository.listAllTenants();
-    const directById = new Map(direct.map((t) => [t.tenantId, t]));
+    const directById = new Map(withPreposto.map((t) => [t.tenantId, t]));
     const merged: TenantSummary[] = [];
 
     for (const row of all) {
@@ -39,11 +40,25 @@ export class CoreAuthTenantService {
     }
 
     const seen = new Set(merged.map((t) => t.tenantId));
-    for (const t of direct) {
+    for (const t of withPreposto) {
       if (!seen.has(t.tenantId)) merged.push(t);
     }
 
     return merged;
+  }
+
+  private async attachPrepostoCompanies(userId: string, tenants: TenantSummary[]): Promise<TenantSummary[]> {
+    if (tenants.length === 0) return tenants;
+    const { data, error } = await supabaseAdmin
+      .from("tenant_companies")
+      .select("tenant_id, id")
+      .eq("preposto_user_id", userId);
+    if (error) throw error;
+    const byTenant = new Map((data ?? [] as { tenant_id: string; id: string }[]).map((r) => [r.tenant_id, r.id]));
+    return tenants.map((t) => ({
+      ...t,
+      prepostoCompanyId: byTenant.get(t.tenantId) ?? null
+    }));
   }
 
   async getTenantContext(
@@ -84,9 +99,22 @@ export class CoreAuthTenantService {
       aiEffectiveProvider = env.AI_PROVIDER_DEFAULT;
     }
 
+    let prepostoCompanyId: string | null = null;
+    if (roles.includes("preposto")) {
+      const { data: preRow, error: preErr } = await supabaseAdmin
+        .from("tenant_companies")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("preposto_user_id", userId)
+        .maybeSingle();
+      if (preErr) throw preErr;
+      prepostoCompanyId = (preRow as { id: string } | null)?.id ?? null;
+    }
+
     return {
       tenantId,
       roles,
+      prepostoCompanyId,
       features,
       subscription,
       aiProvider: tenantAiProvider,

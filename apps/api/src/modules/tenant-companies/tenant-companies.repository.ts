@@ -5,6 +5,7 @@ export type TenantCompanyRow = {
   tenant_id: string;
   name: string;
   tax_id: string | null;
+  preposto_user_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -109,5 +110,74 @@ export class TenantCompaniesRepository {
       .single();
     if (error) throw error;
     return (data as { id: string }).id;
+  }
+
+  async userHasProfileInCompany(tenantId: string, companyId: string, userId: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .from("tenant_user_profiles")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("company_id", companyId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }
+
+  /** Remove o utilizador como preposto de outros contratos no mesmo tenant (exceto `exceptCompanyId`). */
+  async clearPrepostoUserExceptCompany(tenantId: string, userId: string, exceptCompanyId: string): Promise<void> {
+    const { error } = await this.db
+      .from("tenant_companies")
+      .update({ preposto_user_id: null })
+      .eq("tenant_id", tenantId)
+      .eq("preposto_user_id", userId)
+      .neq("id", exceptCompanyId);
+    if (error) throw error;
+  }
+
+  async setPrepostoUserId(tenantId: string, companyId: string, prepostoUserId: string | null): Promise<TenantCompanyRow> {
+    const { data, error } = await this.db
+      .from("tenant_companies")
+      .update({ preposto_user_id: prepostoUserId })
+      .eq("tenant_id", tenantId)
+      .eq("id", companyId)
+      .select("*")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("TENANT_COMPANY_NOT_FOUND");
+    return data as TenantCompanyRow;
+  }
+
+  async countPrepostoAssignmentsForUser(tenantId: string, userId: string): Promise<number> {
+    const { count, error } = await this.db
+      .from("tenant_companies")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+      .eq("preposto_user_id", userId);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  async upsertPrepostoRole(tenantId: string, userId: string): Promise<void> {
+    const { error } = await this.db.from("user_tenant_roles").upsert(
+      {
+        tenant_id: tenantId,
+        user_id: userId,
+        role: "preposto",
+        is_active: true
+      },
+      { onConflict: "tenant_id,user_id,role" }
+    );
+    if (error) throw error;
+  }
+
+  async deletePrepostoRole(tenantId: string, userId: string): Promise<void> {
+    const { error } = await this.db
+      .from("user_tenant_roles")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId)
+      .eq("role", "preposto");
+    if (error) throw error;
   }
 }

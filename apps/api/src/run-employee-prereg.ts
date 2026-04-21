@@ -13,7 +13,7 @@ export async function runEmployeePreregListGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.listPreregistrations({
@@ -36,7 +36,7 @@ export async function runEmployeePreregBatchesLogGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.listBatches({
@@ -60,7 +60,7 @@ export async function runEmployeePreregBatchDetailGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.getBatchDetail({
@@ -84,7 +84,7 @@ export async function runEmployeePreregDetailGet(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.getPreregistrationDetail({
@@ -108,7 +108,7 @@ export async function runEmployeePreregCreateBatchPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.createBatch({
@@ -133,7 +133,7 @@ export async function runEmployeePreregUpdatePut(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.updatePreregistrationPayload({
@@ -158,7 +158,7 @@ export async function runEmployeePreregDelete(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.deletePreregistration({
@@ -182,7 +182,7 @@ export async function runEmployeePreregConfirmRegisterPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.confirmRegister({
@@ -206,7 +206,7 @@ export async function runEmployeePreregConfirmLinkPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
     const result = await employeePreregHandlers.confirmLink({
@@ -231,7 +231,7 @@ export async function runEmployeePreregProcessPost(
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
-  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId);
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   if (file.buffer.length > env.MAX_PDF_UPLOAD_SIZE_BYTES) {
     const parsed = toHttpError(new Error("FILE_TOO_LARGE"));

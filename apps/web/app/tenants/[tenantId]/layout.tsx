@@ -16,6 +16,7 @@ import {
 
 type TenantContext = {
   roles: string[];
+  prepostoCompanyId?: string | null;
   features: Array<{ code: string; isEnabled: boolean }>;
   aiProvider: "openai" | "gemini" | null;
   aiEffectiveProvider: "openai" | "gemini" | null;
@@ -25,6 +26,7 @@ type TenantCompany = {
   id: string;
   name: string;
   taxId: string | null;
+  prepostoUserId?: string | null;
 };
 
 type NavLink = {
@@ -103,7 +105,8 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     if (!context) return;
     const r = context.roles;
     const isSupervisor = r.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
-    if (!isSupervisor) {
+    const isPreposto = r.includes("preposto");
+    if (!isSupervisor && !isPreposto) {
       setCompanies([]);
       return;
     }
@@ -149,14 +152,20 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     const features = new Set((context?.features ?? []).filter((f) => f.isEnabled).map((f) => f.code));
     const isManagement = roles.some((role) => ["owner", "admin", "manager"].includes(role));
     const isSupervisor = roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isPreposto = roles.includes("preposto");
+    const isPrepostoScoped = isPreposto && !isSupervisor;
     const isCollaborator = roles.some((role) => ["employee", "viewer"].includes(role));
-    const isTimeManager = roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isTimeManager = roles.some((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role));
     const isEmployeeOnly = roles.length > 0 && roles.every((role) => role === "employee");
     const isViewerOnly = roles.length > 0 && roles.every((role) => role === "viewer");
 
     const links: NavLink[] = [{ label: "Início", href: `/tenants/${tenantId}/dashboard`, section: "geral" }];
     if (isEmployeeOnly) {
       links.push({ label: "Meu perfil", href: `/tenants/${tenantId}/employee/profile`, section: "geral" });
+    }
+    if (isPrepostoScoped) {
+      links.push({ label: "Meu Portal", href: `/tenants/${tenantId}/employee/profile`, section: "geral" });
+      links.push({ label: "Minha conta", href: `/tenants/${tenantId}/account`, section: "geral" });
     }
 
     if (features.has("mod_recruitment") && !isEmployeeOnly) {
@@ -165,13 +174,13 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       if (isManagement) {
         links.push({ label: "Nova vaga", href: `/tenants/${tenantId}/recruitment/jobs/new`, section: "recrutamento" });
       }
-      if (!isManagement) {
+      if (!isManagement && !isPreposto) {
         links.push({ label: "Portal Candidato", href: `/tenants/${tenantId}/candidate`, section: "recrutamento" });
       }
     }
 
     if (features.has("mod_documents")) {
-      if (isManagement) {
+      if (isManagement || isPreposto) {
         links.push({ label: "Colaboradores", href: `/tenants/${tenantId}/collaborator`, section: "rh" });
       }
     }
@@ -192,7 +201,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       links.push({ label: "Sobreaviso", href: `/tenants/${tenantId}/oncall`, section: "operacao" });
     }
 
-    if (isSupervisor) {
+    if (isSupervisor || isPreposto) {
       links.push({ label: "Sobreaviso", href: `/tenants/${tenantId}/oncall`, section: "operacao" });
     }
 
@@ -212,6 +221,11 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         section: "backoffice"
       });
       links.push({ label: "Auditoria", href: `/tenants/${tenantId}/audit`, section: "backoffice" });
+      links.push({
+        label: "Preposto",
+        href: `/tenants/${tenantId}/preposto`,
+        section: "backoffice"
+      });
     }
 
     return links;
@@ -250,9 +264,12 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
                 window.location.reload();
               }}
             >
-              <option value="" style={{ color: "#000" }}>
-                Todas
-              </option>
+              {roles.includes("preposto") &&
+              !roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role)) ? null : (
+                <option value="" style={{ color: "#000" }}>
+                  Todas
+                </option>
+              )}
               {companies.map((company) => (
                 <option key={company.id} value={company.id} style={{ color: "#000" }}>
                   {company.name}

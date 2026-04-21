@@ -242,6 +242,22 @@ const knownErrors = new Map<string, ApiErrorShape>([
     { status: 404, code: "TENANT_COMPANY_NOT_FOUND", message: "Empresa/projeto nao encontrada para este assinante." }
   ],
   [
+    "USER_NOT_IN_COMPANY",
+    {
+      status: 400,
+      code: "USER_NOT_IN_COMPANY",
+      message: "O utilizador indicado nao esta vinculado como colaborador desta empresa/projeto."
+    }
+  ],
+  [
+    "PREPOSTO_SCOPE_MISMATCH",
+    {
+      status: 403,
+      code: "PREPOSTO_SCOPE_MISMATCH",
+      message: "Preposto so pode aceder ao contrato para o qual foi designado."
+    }
+  ],
+  [
     "TENANT_DEFAULT_COMPANY_MISSING",
     {
       status: 500,

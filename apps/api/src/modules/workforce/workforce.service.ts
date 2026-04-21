@@ -39,8 +39,9 @@ export class WorkforceService {
   }): Promise<string | null> {
     if (input.companyId) return input.companyId;
     const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const privileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
-    if (privileged) return null;
+    const multiCompany = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    if (!multiCompany && ctx.prepostoCompanyId) return ctx.prepostoCompanyId;
+    if (multiCompany) return null;
     return this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
   }
 
@@ -67,8 +68,9 @@ export class WorkforceService {
   }): Promise<string> {
     if (input.companyId) return input.companyId;
     const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const privileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
-    if (privileged) throw new Error("COMPANY_SCOPE_REQUIRED");
+    if (ctx.prepostoCompanyId) return ctx.prepostoCompanyId;
+    const multiCompany = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    if (multiCompany) throw new Error("COMPANY_SCOPE_REQUIRED");
     return this.resolveEmployeeCompanyId(input);
   }
 
@@ -87,7 +89,7 @@ export class WorkforceService {
       onlyActive: input.onlyActive ?? true,
       onlyArchived: input.onlyArchived ?? false
     });
-    const isPrivileged = context.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+    const isPrivileged = context.roles.some((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role));
     const visibleNotices = isPrivileged
       ? notices
       : notices.filter((notice) => {
@@ -156,7 +158,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     const companyId = this.requireAdminCompany(input.companyId);
     const normalizedRecipients = Array.from(new Set((input.recipientUserIds ?? []).filter(Boolean)));
@@ -201,7 +204,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
 
     const normalizedFileName = sanitizeFileName(input.fileName);
@@ -247,7 +251,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -341,7 +346,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -366,7 +372,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
 
     const existing = await this.repository.getTimeAdjustmentById({
@@ -510,7 +517,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     const existing = await this.repository.getTimeEntryById({
       tenantId: input.tenantId,
@@ -566,7 +574,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -582,7 +591,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
   }
 
@@ -1224,7 +1234,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     const companyId = this.requireAdminCompany(input.companyId);
     const updated = await this.repository.updateTenantWorkRule({
@@ -1264,7 +1275,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1369,7 +1381,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     const companyId = this.requireAdminCompany(input.companyId);
     const { from, to } = getMonthRange(input.referenceMonth);
@@ -1435,7 +1448,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     return this.repository.listTimeReportClosures({
       tenantId: input.tenantId,
@@ -1455,7 +1469,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     const closure = await this.repository.getTimeReportClosureById({
       tenantId: input.tenantId,
@@ -1525,7 +1540,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     const referenceMonth = input.referenceMonth ?? new Date().toISOString().slice(0, 7);
     const { from, to } = getMonthRange(referenceMonth);
@@ -1602,7 +1618,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     await this.repository.archiveNotice({
       tenantId: input.tenantId,
@@ -1631,7 +1648,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     await this.repository.unarchiveNotice({
       tenantId: input.tenantId,
@@ -1660,7 +1678,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     await this.repository.deleteNotice({
       tenantId: input.tenantId,
@@ -1684,7 +1703,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     return this.repository.listShiftTemplates(input.tenantId, await this.resolveListCompanyId(input));
   }
@@ -1704,7 +1724,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     return this.repository.createShiftTemplate({
       tenantId: input.tenantId,
@@ -1735,7 +1756,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     return this.repository.updateShiftTemplate({
       tenantId: input.tenantId,
@@ -1763,7 +1785,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     return this.repository.assignShiftTemplate({
       tenantId: input.tenantId,
@@ -1783,7 +1806,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1816,7 +1840,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1852,7 +1877,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1883,7 +1909,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1924,7 +1951,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     return this.repository.createOnboardingRequirement({
       tenantId: input.tenantId,
@@ -1947,7 +1975,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1971,7 +2000,8 @@ export class WorkforceService {
         "owner",
         "admin",
         "manager",
-        "analyst"
+        "analyst",
+        "preposto"
       ]);
     } else {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
@@ -1995,7 +2025,8 @@ export class WorkforceService {
       "owner",
       "admin",
       "manager",
-      "analyst"
+      "analyst",
+      "preposto"
     ]);
     return this.repository.reviewOnboardingSubmission({
       tenantId: input.tenantId,
