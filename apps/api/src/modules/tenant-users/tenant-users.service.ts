@@ -270,18 +270,20 @@ export class TenantUsersService {
     return this.repository.lookupEmployeeByCpf(input.tenantId, input.cpf);
   }
 
-  /** Conta de auth existente (por e-mail normalizado), sem checar vínculo ao tenant. */
-  async resolveAuthUserIdByEmail(email: string): Promise<string | null> {
+  /**
+   * Conta existente no contexto deste tenant (mesma regra que lookup pré-cadastro / vincular).
+   */
+  async resolveAuthUserIdByEmail(tenantId: string, email: string): Promise<string | null> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) return null;
-    return this.repository.findUserIdByEmail(normalized);
+    return this.repository.findUserIdByEmailForTenant(tenantId, normalized);
   }
 
-  /** Usuário já cadastrado (perfil/candidato/auth), por CPF só dígitos (11). */
-  async resolveAuthUserIdByCpf(cpfDigits: string): Promise<string | null> {
+  /** CPF (11 dígitos) no contexto deste tenant. */
+  async resolveAuthUserIdByCpf(tenantId: string, cpfDigits: string): Promise<string | null> {
     const normalized = cpfDigits.replace(/\D/g, "");
     if (normalized.length !== 11) return null;
-    return this.repository.findUserIdByCpf(normalized);
+    return this.repository.findUserIdByCpfForTenant(tenantId, normalized);
   }
 
   async upsertBackofficeUser(input: {

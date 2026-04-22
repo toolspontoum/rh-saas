@@ -219,10 +219,10 @@ export class EmployeePreregService {
 
     if (emailOk.success || cpfOk) {
       if (emailOk.success) {
-        authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(emailOk.data);
+        authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(input.tenantId, emailOk.data);
       }
       if (!authUserId && cpfOk) {
-        authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(cpfDigits);
+        authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(input.tenantId, cpfDigits);
       }
       suggestedAction = authUserId ? "link" : "register";
       if (authUserId) {
@@ -302,10 +302,10 @@ export class EmployeePreregService {
 
     let authUserId: string | null = null;
     if (email) {
-      authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(email);
+      authUserId = await this.tenantUsersService.resolveAuthUserIdByEmail(input.tenantId, email);
     }
     if (!authUserId && cpfNormalized) {
-      authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(cpfNormalized);
+      authUserId = await this.tenantUsersService.resolveAuthUserIdByCpf(input.tenantId, cpfNormalized);
     }
 
     if (input.mode === "register" && authUserId) {

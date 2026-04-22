@@ -411,6 +411,24 @@ export class TenantUsersRepository {
     if (error) throw error;
   }
 
+  private async findUserIdByEmailUsingAuthAdminList(targetLower: string): Promise<string | null> {
+    let page = 1;
+    const perPage = 200;
+    while (page <= 50) {
+      const { data, error } = await this.db.auth.admin.listUsers({ page, perPage });
+      if (error) throw error;
+      const users = data.users ?? [];
+      const found = users.find((user) => (user.email ?? "").toLowerCase() === targetLower);
+      if (found?.id) return found.id;
+      if (users.length < perPage) break;
+      page += 1;
+    }
+    return null;
+  }
+
+  /**
+   * Resolução global (qualquer tenant / auth). Usado em upsert de colaborador e fluxos administrativos.
+   */
   async findUserIdByEmail(email: string): Promise<string | null> {
     const target = email.trim().toLowerCase();
     if (!target) return null;
@@ -443,19 +461,69 @@ export class TenantUsersRepository {
     if (candidateError) throw candidateError;
     if (candidateData?.user_id) return (candidateData as { user_id: string }).user_id;
 
-    let page = 1;
-    const perPage = 200;
-    while (page <= 50) {
-      const { data, error } = await this.db.auth.admin.listUsers({ page, perPage });
-      if (error) throw error;
-      const users = data.users ?? [];
-      const found = users.find((user) => (user.email ?? "").toLowerCase() === target);
-      if (found?.id) return found.id;
-      if (users.length < perPage) break;
-      page += 1;
+    return this.findUserIdByEmailUsingAuthAdminList(target);
+  }
+
+  /**
+   * Resolução por e-mail **neste tenant**: perfil/candidatura locais + auth (conta Supabase).
+   * Evita falso "utilizador existente" por colisão de e-mail em `tenant_user_profiles` de outro assinante.
+   */
+  async findUserIdByEmailForTenant(tenantId: string, email: string): Promise<string | null> {
+    const target = email.trim().toLowerCase();
+    if (!target) return null;
+
+    const { data: tenantProfileData, error: tenantProfileError } = await this.db
+      .from("tenant_user_profiles")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("personal_email", target)
+      .limit(1)
+      .maybeSingle();
+    if (tenantProfileError) throw tenantProfileError;
+    if (tenantProfileData?.user_id) return (tenantProfileData as { user_id: string }).user_id;
+
+    const { data: candidateData, error: candidateError } = await this.db
+      .from("candidates")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("email", target)
+      .not("user_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (candidateError) throw candidateError;
+    if (candidateData?.user_id) return (candidateData as { user_id: string }).user_id;
+
+    const { data: candidateProfileData, error: candidateProfileError } = await this.db
+      .from("candidate_profiles")
+      .select("user_id")
+      .eq("email", target)
+      .limit(1)
+      .maybeSingle();
+    if (candidateProfileError) throw candidateProfileError;
+    const cpUid = (candidateProfileData as { user_id: string } | null)?.user_id;
+    if (cpUid) {
+      const { data: roleRow, error: roleErr } = await this.db
+        .from("user_tenant_roles")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", cpUid)
+        .limit(1)
+        .maybeSingle();
+      if (roleErr) throw roleErr;
+      if (roleRow?.user_id) return cpUid;
+
+      const { data: candSameUser, error: candErr } = await this.db
+        .from("candidates")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", cpUid)
+        .limit(1)
+        .maybeSingle();
+      if (candErr) throw candErr;
+      if (candSameUser?.user_id) return cpUid;
     }
 
-    return null;
+    return this.findUserIdByEmailUsingAuthAdminList(target);
   }
 
   async findUserIdByCpf(cpf: string): Promise<string | null> {
@@ -489,6 +557,67 @@ export class TenantUsersRepository {
       .maybeSingle();
     if (candidatesError) throw candidatesError;
     if (candidatesData?.user_id) return (candidatesData as { user_id: string }).user_id;
+
+    return null;
+  }
+
+  /**
+   * CPF **neste tenant** (perfil local, candidatura local ou candidato com vínculo ao tenant).
+   */
+  async findUserIdByCpfForTenant(tenantId: string, cpf: string): Promise<string | null> {
+    const normalizedCpf = cpf.replace(/\D/g, "");
+    if (normalizedCpf.length !== 11) return null;
+
+    const { data: profileByCpf, error: profileByCpfError } = await this.db
+      .from("tenant_user_profiles")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("cpf", normalizedCpf)
+      .limit(1)
+      .maybeSingle();
+    if (profileByCpfError) throw profileByCpfError;
+    if (profileByCpf) return (profileByCpf as { user_id: string }).user_id;
+
+    const { data: candidatesData, error: candidatesError } = await this.db
+      .from("candidates")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("cpf", normalizedCpf)
+      .not("user_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (candidatesError) throw candidatesError;
+    if (candidatesData?.user_id) return (candidatesData as { user_id: string }).user_id;
+
+    const { data: candidateProfileData, error: candidateProfileError } = await this.db
+      .from("candidate_profiles")
+      .select("user_id")
+      .eq("cpf", normalizedCpf)
+      .limit(1)
+      .maybeSingle();
+    if (candidateProfileError) throw candidateProfileError;
+    const cpUid = (candidateProfileData as { user_id: string } | null)?.user_id;
+    if (cpUid) {
+      const { data: roleRow, error: roleErr } = await this.db
+        .from("user_tenant_roles")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", cpUid)
+        .limit(1)
+        .maybeSingle();
+      if (roleErr) throw roleErr;
+      if (roleRow?.user_id) return cpUid;
+
+      const { data: candSameUser, error: candErr } = await this.db
+        .from("candidates")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", cpUid)
+        .limit(1)
+        .maybeSingle();
+      if (candErr) throw candErr;
+      if (candSameUser?.user_id) return cpUid;
+    }
 
     return null;
   }
@@ -654,9 +783,28 @@ export class TenantUsersRepository {
 
     const normalizedEmailHint = candidateMatch.type === "email" ? candidateMatch.value : null;
 
+    const { data: roleRows, error: roleLookupError } = await this.db
+      .from("user_tenant_roles")
+      .select("role")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId);
+    if (roleLookupError) throw roleLookupError;
+    const roles = (roleRows ?? []) as { role: string }[];
+    const hasEmployeeRole = roles.some((r) => r.role === "employee");
+    const hasAnyTenantRole = roles.length > 0;
+    /**
+     * "Conta encontrada" para pré-cadastro: colaborador (papel employee) ou conta Supabase ainda
+     * sem vínculo ao tenant (vincular). Utilizadores só com papéis de backoffice não entram na lista
+     * de colaboradores e não devem ativar "Vincular" aqui.
+     */
+    const existsForEmployeePrereg =
+      hasEmployeeRole || (!hasAnyTenantRole && profile === null);
+
+    const outUserId = existsForEmployeePrereg ? userId : null;
+
     return {
-      exists: true,
-      userId,
+      exists: existsForEmployeePrereg,
+      userId: outUserId,
       email: authUser?.email ?? normalizedEmailHint,
       fullName:
         profile?.full_name ??
@@ -681,7 +829,7 @@ export class TenantUsersRepository {
       return this.employeeLookupMissingUser(null);
     }
 
-    const userId = await this.findUserIdByEmail(normalizedEmail);
+    const userId = await this.findUserIdByEmailForTenant(tenantId, normalizedEmail);
     if (!userId) {
       return this.employeeLookupMissingUser(normalizedEmail);
     }
@@ -695,7 +843,7 @@ export class TenantUsersRepository {
       return this.employeeLookupMissingUser(null);
     }
 
-    const userId = await this.findUserIdByCpf(normalizedCpf);
+    const userId = await this.findUserIdByCpfForTenant(tenantId, normalizedCpf);
     if (!userId) {
       return this.employeeLookupMissingUser(null);
     }
