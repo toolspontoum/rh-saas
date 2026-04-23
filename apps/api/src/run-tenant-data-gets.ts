@@ -3,12 +3,27 @@ import { candidatePortalHandlers } from "./modules/candidate-portal/index.js";
 import { toHttpError } from "./http/error-handler.js";
 import { documentsPayslipsHandlers } from "./modules/documents-payslips/index.js";
 import { recruitmentHandlers } from "./modules/recruitment/index.js";
+import type { ApplicationStatus } from "./modules/recruitment/recruitment.types.js";
 import { standardDocumentsHandlers } from "./modules/standard-documents/index.js";
 import { workforceHandlers } from "./modules/workforce/index.js";
 import { getBearerSession } from "./session-from-bearer.js";
 import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
 
 export type JsonHttpResult = { status: number; body: unknown };
+
+const JOB_APPLICATION_STATUSES: readonly ApplicationStatus[] = [
+  "submitted",
+  "in_review",
+  "approved",
+  "rejected",
+  "archived"
+];
+
+function parseJobApplicationStatusQuery(raw: string | undefined): ApplicationStatus | undefined {
+  const s = raw?.trim();
+  if (!s) return undefined;
+  return JOB_APPLICATION_STATUSES.includes(s as ApplicationStatus) ? (s as ApplicationStatus) : undefined;
+}
 
 /** GET /v1/tenants/:tenantId/employee-profile */
 export async function runTenantEmployeeProfileGet(
@@ -61,7 +76,7 @@ export async function runTenantJobApplicationsListGet(
       userId: s.userId,
       companyId: scope.companyId ?? undefined,
       jobId,
-      status: query.status,
+      status: parseJobApplicationStatusQuery(query.status),
       candidateName: query.candidateName,
       page: query.page,
       pageSize: query.pageSize
