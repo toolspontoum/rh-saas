@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Eye, Link2, Pencil, Share2, Trash2 } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../../components/empty-state";
 import { apiFetch } from "../../../../../lib/api";
+import { getPublicWebUrl } from "../../../../../lib/public-web-url";
 import { useSavedState } from "../../../../../lib/saved-state";
 
 type Job = {
@@ -25,6 +26,19 @@ type Job = {
 type CandidateRow = { id: string; isActive: boolean };
 
 type Paginated<T> = { items: T[] };
+
+type TenantSummary = { tenantId: string; slug: string };
+
+function publicPortalJobUrl(tenantSlug: string, jobId: string): string {
+  const base = getPublicWebUrl();
+  return `${base}/vagas/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(jobId)}`;
+}
+
+/** Fallback quando o slug ainda não veio de `/v1/me/tenants` — a página redireciona para `/vagas/[slug]/[id]`. */
+function publicPortalJobUrlByDetail(jobId: string): string {
+  const base = getPublicWebUrl();
+  return `${base}/vagas/detalhe/${encodeURIComponent(jobId)}`;
+}
 
 function resolveStatusLabel(job: Job): { label: "Ativa" | "Inativa" | "Rascunho" | "Encerrada"; kind: "success" | "warning" | "danger" | "neutral" } {
   if (job.status === "closed") return { label: "Encerrada", kind: "neutral" };
@@ -46,6 +60,8 @@ export default function RecruitmentJobsPage() {
   const [stateFilter, setStateFilter] = useSavedState(`jobs_state_${tenantId}`, "");
   const [modalityFilter, setModalityFilter] = useSavedState(`jobs_modality_${tenantId}`, "");
   const [error, setError] = useState<string | null>(null);
+  const [portalNotice, setPortalNotice] = useState<string | null>(null);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
 
   async function loadJobs() {
@@ -65,6 +81,31 @@ export default function RecruitmentJobsPage() {
       .catch(() => setCandidates([]));
   }, [tenantId]);
 
+  useEffect(() => {
+    apiFetch<TenantSummary[]>("/v1/me/tenants")
+      .then((rows) => {
+        const row = rows.find((t) => t.tenantId === tenantId);
+        setTenantSlug(row?.slug?.trim() ? row.slug.trim() : null);
+      })
+      .catch(() => setTenantSlug(null));
+  }, [tenantId]);
+
+  function resolvePublishedPortalUrl(jobId: string): string {
+    if (!tenantSlug) return publicPortalJobUrlByDetail(jobId);
+    return publicPortalJobUrl(tenantSlug, jobId);
+  }
+
+  async function copyPortalJobUrl(jobId: string) {
+    const url = resolvePublishedPortalUrl(jobId);
+    try {
+      await navigator.clipboard.writeText(url);
+      setPortalNotice("Link copiado para a área de transferência.");
+    } catch {
+      setPortalNotice("Não foi possível copiar o link. Copie manualmente a partir do ícone de abrir.");
+    }
+    window.setTimeout(() => setPortalNotice(null), 3200);
+  }
+
   const options = useMemo(() => {
     const areas = Array.from(new Set(items.map((j) => (j.department ?? "").trim()).filter(Boolean))).sort();
     const cities = Array.from(new Set(items.map((j) => (j.city ?? "").trim()).filter(Boolean))).sort();
@@ -78,6 +119,11 @@ export default function RecruitmentJobsPage() {
     () => candidates.filter((c) => c.isActive).length,
     [candidates]
   );
+
+  const publicJobsListUrl = useMemo(() => {
+    if (!tenantSlug) return null;
+    return `${getPublicWebUrl()}/vagas/${encodeURIComponent(tenantSlug)}`;
+  }, [tenantSlug]);
 
   const filteredItems = useMemo(() => {
     const selectedArea = options.areas.includes(areaFilter) ? areaFilter : "";
@@ -136,9 +182,32 @@ export default function RecruitmentJobsPage() {
 
       <div className="section-header">
         <h1>Painel de Recrutamento</h1>
-        <Link href={`/tenants/${tenantId}/recruitment/jobs/new`}><button>Criar vaga</button></Link>
+        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+          {publicJobsListUrl ? (
+            <a
+              href={publicJobsListUrl}
+              className="btn secondary"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Ir para página de vagas
+            </a>
+          ) : (
+            <button type="button" className="secondary" disabled title="Carregando link do portal…">
+              Ir para página de vagas
+            </button>
+          )}
+          <Link href={`/tenants/${tenantId}/recruitment/jobs/new`}>
+            <button type="button">Criar vaga</button>
+          </Link>
+        </div>
       </div>
       {error ? <p className="error">{error}</p> : null}
+      {portalNotice ? (
+        <p className="muted" role="status" style={{ margin: 0 }}>
+          {portalNotice}
+        </p>
+      ) : null}
 
       <div className="card stack">
         <input placeholder="Filtrar por título" value={titleFilter} onChange={(e) => setTitleFilter(e.target.value)} />
@@ -220,6 +289,7 @@ export default function RecruitmentJobsPage() {
             <tbody>
               {filteredItems.map((job) => {
                 const status = resolveStatusLabel(job);
+                const portalUrl = job.status === "published" ? resolvePublishedPortalUrl(job.id) : null;
                 return (
                   <tr key={job.id}>
                     <td><Link href={`/tenants/${tenantId}/recruitment/jobs/${job.id}`}>{job.title}</Link></td>
@@ -233,6 +303,29 @@ export default function RecruitmentJobsPage() {
                       <div className="row">
                         <Link href={`/tenants/${tenantId}/recruitment/jobs/${job.id}`} className="icon-btn" title="Visualizar" aria-label="Visualizar"><Eye size={16} /></Link>
                         <Link href={`/tenants/${tenantId}/recruitment/jobs/${job.id}/edit`} className="icon-btn" title="Editar" aria-label="Editar"><Pencil size={16} /></Link>
+                        {portalUrl ? (
+                          <a
+                            href={portalUrl}
+                            className="icon-btn"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir vaga no portal público (nova aba)"
+                            aria-label="Abrir vaga no portal público"
+                          >
+                            <Link2 size={16} />
+                          </a>
+                        ) : null}
+                        {portalUrl ? (
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Copiar link público da vaga"
+                            aria-label="Copiar link público da vaga"
+                            onClick={() => void copyPortalJobUrl(job.id)}
+                          >
+                            <Share2 size={16} />
+                          </button>
+                        ) : null}
                         <button className="icon-btn icon-danger" title="Excluir" aria-label="Excluir" onClick={() => removeJob(job.id)}><Trash2 size={16} /></button>
                       </div>
                     </td>
