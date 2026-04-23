@@ -43,6 +43,25 @@ export class RecruitmentService {
     return this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
   }
 
+  /**
+   * Resolve a vaga para leitura no recrutamento. Se o header `X-Tenant-Company-Id` aponta para outra empresa
+   * mas o utilizador é owner/admin/manager/analyst, faz fallback sem filtro de empresa (vagas publicadas noutra empresa).
+   */
+  private async getJobRespectingCompanyScope(input: {
+    tenantId: string;
+    userId: string;
+    jobId: string;
+    listCompanyId: string | null;
+  }): Promise<Job | null> {
+    let job = await this.repository.getJobById(input.tenantId, input.jobId, input.listCompanyId);
+    if (job) return job;
+    if (!input.listCompanyId) return null;
+    const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+    const canSeeAllCompanies = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+    if (!canSeeAllCompanies) return null;
+    return this.repository.getJobById(input.tenantId, input.jobId, null);
+  }
+
   async createJob(input: CreateJobInput): Promise<Job> {
     await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_recruitment");
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
@@ -238,7 +257,12 @@ export class RecruitmentService {
     await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_recruitment");
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);
-    const job = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
+    const job = await this.getJobRespectingCompanyScope({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      jobId: input.jobId,
+      listCompanyId
+    });
     if (!job) {
       throw new Error("JOB_NOT_FOUND");
     }
@@ -282,7 +306,12 @@ export class RecruitmentService {
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId(input);
-    const job = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
+    const job = await this.getJobRespectingCompanyScope({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      jobId: input.jobId,
+      listCompanyId
+    });
     if (!job) {
       throw new Error("JOB_NOT_FOUND");
     }
@@ -513,7 +542,20 @@ export class RecruitmentService {
       "preposto"
     ]);
 
-    const listCompanyId = await this.resolveJobsListCompanyId(input);
+    let listCompanyId = await this.resolveJobsListCompanyId(input);
+
+    if (input.jobId && listCompanyId) {
+      const inCompany = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
+      if (!inCompany) {
+        const widened = await this.getJobRespectingCompanyScope({
+          tenantId: input.tenantId,
+          userId: input.userId,
+          jobId: input.jobId,
+          listCompanyId
+        });
+        if (widened) listCompanyId = null;
+      }
+    }
 
     return this.repository.listTenantApplications({
       tenantId: input.tenantId,

@@ -103,6 +103,16 @@ a {
   overflow-y: auto;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
+  /* O bloco nav ocupa a linha 1fr da sidebar; sem isto o grid reparte altura extra e os links esticam (ex.: 200px+). */
+  align-content: start;
+  align-items: start;
+  justify-items: stretch;
+  grid-auto-rows: auto;
+}
+
+.app-shell.candidate-app-shell .sidebar .candidate-sidebar-nav .nav-link {
+  justify-self: stretch;
+  width: 100%;
 }
 
 .app-shell.candidate-app-shell .sidebar .candidate-sidebar-footer {

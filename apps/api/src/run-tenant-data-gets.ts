@@ -35,6 +35,44 @@ export async function runTenantEmployeeProfileGet(
   }
 }
 
+/** GET /v1/tenants/:tenantId/jobs/:jobId/applications — inscritos da vaga (evita cold start Express na Vercel). */
+export async function runTenantJobApplicationsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  jobId: string,
+  query: {
+    status?: string;
+    candidateName?: string;
+    page?: string;
+    pageSize?: string;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.listJobApplications({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      jobId,
+      status: query.status,
+      candidateName: query.candidateName,
+      page: query.page,
+      pageSize: query.pageSize
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:tenantId/jobs */
 export async function runTenantJobsListGet(
   authorizationHeader: string | null | undefined,
