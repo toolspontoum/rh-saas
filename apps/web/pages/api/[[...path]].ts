@@ -655,6 +655,45 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** Vagas (recrutamento): POST/PATCH/DELETE sem cold start do Express (504 ao salvar na Vercel). */
+    if (
+      segments.length >= 4 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "jobs"
+    ) {
+      const tenantJobs = segments[2] ?? "";
+      const jobIdSeg = segments[4];
+      const companyRawJobs = req.headers["x-tenant-company-id"];
+      const xCompanyJobs =
+        typeof companyRawJobs === "string"
+          ? companyRawJobs
+          : Array.isArray(companyRawJobs)
+            ? companyRawJobs[0]
+            : undefined;
+      const authJobs = headerAuthorization(req);
+      const { runTenantJobCreatePost, runTenantJobPatch, runTenantJobDelete } = await import(
+        "@vv/api/run-tenant-recruitment-writes"
+      );
+
+      if (req.method === "POST" && segments.length === 4) {
+        const bodyJobs = await readJsonBody(req);
+        const outJobs = await runTenantJobCreatePost(authJobs, tenantJobs, bodyJobs, xCompanyJobs);
+        return res.status(outJobs.status).json(outJobs.body);
+      }
+
+      if (req.method === "PATCH" && segments.length === 5 && jobIdSeg) {
+        const bodyJobs = await readJsonBody(req);
+        const outJobs = await runTenantJobPatch(authJobs, tenantJobs, jobIdSeg, bodyJobs, xCompanyJobs);
+        return res.status(outJobs.status).json(outJobs.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && jobIdSeg) {
+        const outJobs = await runTenantJobDelete(authJobs, tenantJobs, jobIdSeg, xCompanyJobs);
+        return res.status(outJobs.status).json(outJobs.body);
+      }
+    }
+
     /** Empresas: PATCH/DELETE sem cold start do Express (504 ao salvar renome na Vercel). */
     if (
       (req.method === "PATCH" || req.method === "DELETE") &&

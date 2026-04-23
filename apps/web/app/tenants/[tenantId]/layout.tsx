@@ -151,6 +151,9 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
   const nav = useMemo(() => {
     const features = new Set((context?.features ?? []).filter((f) => f.isEnabled).map((f) => f.code));
     const isManagement = roles.some((role) => ["owner", "admin", "manager"].includes(role));
+    const canCreateRecruitmentJobs = roles.some((role) =>
+      ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+    );
     const isSupervisor = roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
     const isPreposto = roles.includes("preposto");
     const isPrepostoScoped = isPreposto && !isSupervisor;
@@ -171,7 +174,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     if (features.has("mod_recruitment") && !isEmployeeOnly) {
       links.push({ label: "Painel de Recrutamento", href: `/tenants/${tenantId}/recruitment/jobs`, section: "recrutamento" });
       links.push({ label: "Candidatos", href: `/tenants/${tenantId}/recruitment/candidates`, section: "recrutamento" });
-      if (isManagement) {
+      if (canCreateRecruitmentJobs) {
         links.push({ label: "Nova vaga", href: `/tenants/${tenantId}/recruitment/jobs/new`, section: "recrutamento" });
       }
       if (!isManagement && !isPreposto) {
