@@ -128,3 +128,65 @@ export async function runTenantJobDelete(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+/** PATCH /v1/tenants/:tenantId/jobs/:jobId/applications/:applicationId/status */
+export async function runTenantJobApplicationStatusPatch(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  jobId: string,
+  applicationId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.updateApplicationStatus({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      jobId,
+      applicationId,
+      status: body.status
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/jobs/:jobId/applications/:applicationId/ai-reanalyze */
+export async function runTenantJobApplicationAiReanalyzePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  jobId: string,
+  applicationId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.requeueApplicationAiAnalysis({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      jobId,
+      applicationId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}

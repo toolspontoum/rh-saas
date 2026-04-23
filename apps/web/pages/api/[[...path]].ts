@@ -512,6 +512,37 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const out = await runTenantDocumentOpenGet(headerAuthorization(req), tenantSegment, b, xCompany6);
         return res.status(out.status).json(out.body);
       }
+      if (a === "recruitment" && b === "applications" && c) {
+        const { runTenantRecruitmentApplicationDetailsGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantRecruitmentApplicationDetailsGet(
+          headerAuthorization(req),
+          tenantSegment,
+          c,
+          xCompany6
+        );
+        return res.status(out.status).json(out.body);
+      }
+    }
+
+    if (req.method === "GET" && segments.length === 7 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantSegment7 = segments[2] ?? "";
+      const a7 = segments[3] ?? "";
+      const b7 = segments[4] ?? "";
+      const c7 = segments[5] ?? "";
+      const d7 = segments[6] ?? "";
+      const companyRaw7 = req.headers["x-tenant-company-id"];
+      const xCompany7 =
+        typeof companyRaw7 === "string" ? companyRaw7 : Array.isArray(companyRaw7) ? companyRaw7[0] : undefined;
+      if (a7 === "recruitment" && b7 === "applications" && d7 === "resume-download" && c7) {
+        const { runTenantRecruitmentApplicationResumeDownloadGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantRecruitmentApplicationResumeDownloadGet(
+          headerAuthorization(req),
+          tenantSegment7,
+          c7,
+          xCompany7
+        );
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (
@@ -788,9 +819,13 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
             ? companyRawJobs[0]
             : undefined;
       const authJobs = headerAuthorization(req);
-      const { runTenantJobCreatePost, runTenantJobPatch, runTenantJobDelete } = await import(
-        "@vv/api/run-tenant-recruitment-writes"
-      );
+      const {
+        runTenantJobCreatePost,
+        runTenantJobPatch,
+        runTenantJobDelete,
+        runTenantJobApplicationStatusPatch,
+        runTenantJobApplicationAiReanalyzePost
+      } = await import("@vv/api/run-tenant-recruitment-writes");
 
       if (
         req.method === "GET" &&
@@ -814,6 +849,50 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           xCompanyJobs
         );
         return res.status(outApps.status).json(outApps.body);
+      }
+
+      if (
+        req.method === "PATCH" &&
+        segments.length === 8 &&
+        segments[5] === "applications" &&
+        segments[7] === "status" &&
+        segments[4] &&
+        segments[6]
+      ) {
+        const bodyAppStatus = await readJsonBody(req);
+        const outAppStatus = await runTenantJobApplicationStatusPatch(
+          authJobs,
+          tenantJobs,
+          segments[4],
+          segments[6],
+          bodyAppStatus,
+          xCompanyJobs
+        );
+        return res.status(outAppStatus.status).json(outAppStatus.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 8 &&
+        segments[5] === "applications" &&
+        segments[7] === "ai-reanalyze" &&
+        segments[4] &&
+        segments[6]
+      ) {
+        const outAi = await runTenantJobApplicationAiReanalyzePost(
+          authJobs,
+          tenantJobs,
+          segments[4],
+          segments[6],
+          xCompanyJobs
+        );
+        return res.status(outAi.status).json(outAi.body);
+      }
+
+      if (req.method === "GET" && segments.length === 5 && jobIdSeg) {
+        const { runTenantJobByIdGet } = await import("@vv/api/run-tenant-data-gets");
+        const outJob = await runTenantJobByIdGet(authJobs, tenantJobs, jobIdSeg, xCompanyJobs);
+        return res.status(outJob.status).json(outJob.body);
       }
 
       if (req.method === "POST" && segments.length === 4) {

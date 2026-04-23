@@ -121,6 +121,31 @@ export async function runTenantJobsListGet(
   }
 }
 
+/** GET /v1/tenants/:tenantId/jobs/:jobId */
+export async function runTenantJobByIdGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  jobId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.getJob({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      jobId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:tenantId/candidates */
 export async function runTenantCandidatesListGet(
   authorizationHeader: string | null | undefined,
@@ -188,6 +213,56 @@ export async function runTenantRecruitmentApplicationsListGet(
       createdTo: query.createdTo,
       page: query.page,
       pageSize: query.pageSize
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/recruitment/applications/:applicationId */
+export async function runTenantRecruitmentApplicationDetailsGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  applicationId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.getTenantApplicationDetails({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      applicationId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/recruitment/applications/:applicationId/resume-download */
+export async function runTenantRecruitmentApplicationResumeDownloadGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  applicationId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.getTenantApplicationResumeDownload({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      applicationId
     });
     return { status: 200, body: result };
   } catch (error) {
