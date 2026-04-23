@@ -348,7 +348,7 @@ export default function CandidateProfilePage() {
   }
 
   return (
-    <main className="container stack" style={{ margin: 0 }}>
+    <main className="container stack apply-flow-main" style={{ margin: 0 }}>
       <div className="section-header">
         <h1>Meu perfil</h1>
         <button className="secondary" onClick={() => router.push("/candidate/dashboard")}>Ir para painel</button>
@@ -477,7 +477,13 @@ export default function CandidateProfilePage() {
 
           <label>
             Resumo profissional
-            <RichTextEditor value={form.professionalSummary} onChange={(value) => updateForm("professionalSummary", value)} placeholder="Resumo profissional" />
+            <div className="job-detail-editor">
+              <RichTextEditor
+                value={form.professionalSummary}
+                onChange={(value) => updateForm("professionalSummary", value)}
+                placeholder="Resumo profissional"
+              />
+            </div>
           </label>
 
           <label>

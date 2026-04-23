@@ -19,12 +19,14 @@ export default function CandidateLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   return (
-    <div className="app-shell">
+    <div className="app-shell candidate-app-shell">
       <aside className="sidebar">
-        <div className="sidebar-title">Portal do Candidato</div>
-        <div className="muted small">VV Consulting</div>
+        <div className="candidate-sidebar-header">
+          <div className="sidebar-title">Portal do Candidato</div>
+          <div className="muted small">VV Consulting</div>
+        </div>
 
-        <nav className="nav stack">
+        <nav className="nav stack candidate-sidebar-nav">
           {links.map((item) => (
             <Link
               key={item.href}
@@ -36,7 +38,7 @@ export default function CandidateLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="stack">
+        <div className="stack candidate-sidebar-footer">
           <button className="secondary" onClick={() => router.push("/")}>Trocar conta</button>
           <button
             className="secondary"

@@ -151,7 +151,7 @@ export default function CandidateJobDetailPage() {
 
   if (loading) {
     return (
-      <main className="container wide">
+      <main className="container wide apply-flow-main">
         <p>Carregando vaga...</p>
       </main>
     );
@@ -159,14 +159,14 @@ export default function CandidateJobDetailPage() {
 
   if (!job) {
     return (
-      <main className="container wide">
+      <main className="container wide apply-flow-main">
         <p className="error">Vaga não encontrada.</p>
       </main>
     );
   }
 
   return (
-    <main className="container wide stack" style={{ margin: 0 }}>
+    <main className="container wide stack apply-flow-main" style={{ margin: 0 }}>
       <div className="section-header">
         <h1>{job.title}</h1>
         <button className="secondary" onClick={() => router.push("/candidate/jobs")}>Voltar para vagas</button>

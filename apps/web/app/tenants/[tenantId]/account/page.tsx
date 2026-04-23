@@ -316,8 +316,7 @@ export default function TenantAccountPage() {
       {passwordModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={closePasswordModal}>
           <div
-            className="modal-card"
-            style={{ width: "min(640px, 100%)" }}
+            className="modal-card modal-card--account"
             role="dialog"
             aria-modal="true"
             aria-labelledby="account-password-modal-title"
