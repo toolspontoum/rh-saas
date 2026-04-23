@@ -1,4 +1,5 @@
 import { toHttpError } from "./http/error-handler.js";
+import { coreAuthTenantHandlers } from "./modules/core-auth-tenant/index.js";
 import { tenantCompaniesHandlers } from "./modules/tenant-companies/index.js";
 import { tenantUsersHandlers } from "./modules/tenant-users/index.js";
 import { workforceHandlers } from "./modules/workforce/index.js";
@@ -204,6 +205,27 @@ export async function runTenantCompanyPrepostoPut(
       userId: s.userId,
       companyId,
       prepostoUserId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/features/:featureCode/validate */
+export async function runTenantFeatureValidatePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  featureCode: string
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  try {
+    const result = await coreAuthTenantHandlers.validateFeature({
+      userId: s.userId,
+      tenantId,
+      featureCode
     });
     return { status: 200, body: result };
   } catch (error) {
