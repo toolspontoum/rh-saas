@@ -792,6 +792,30 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         "@vv/api/run-tenant-recruitment-writes"
       );
 
+      if (
+        req.method === "GET" &&
+        segments.length === 6 &&
+        segments[4] &&
+        segments[5] === "applications"
+      ) {
+        const jobIdApps = segments[4];
+        const qApps = req.query;
+        const { runTenantJobApplicationsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const outApps = await runTenantJobApplicationsListGet(
+          authJobs,
+          tenantJobs,
+          jobIdApps,
+          {
+            status: typeof qApps.status === "string" ? qApps.status : undefined,
+            candidateName: typeof qApps.candidateName === "string" ? qApps.candidateName : undefined,
+            page: typeof qApps.page === "string" ? qApps.page : undefined,
+            pageSize: typeof qApps.pageSize === "string" ? qApps.pageSize : undefined
+          },
+          xCompanyJobs
+        );
+        return res.status(outApps.status).json(outApps.body);
+      }
+
       if (req.method === "POST" && segments.length === 4) {
         const bodyJobs = await readJsonBody(req);
         const outJobs = await runTenantJobCreatePost(authJobs, tenantJobs, bodyJobs, xCompanyJobs);

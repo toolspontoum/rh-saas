@@ -3,12 +3,27 @@ import { candidatePortalHandlers } from "./modules/candidate-portal/index.js";
 import { toHttpError } from "./http/error-handler.js";
 import { documentsPayslipsHandlers } from "./modules/documents-payslips/index.js";
 import { recruitmentHandlers } from "./modules/recruitment/index.js";
+import type { ApplicationStatus } from "./modules/recruitment/recruitment.types.js";
 import { standardDocumentsHandlers } from "./modules/standard-documents/index.js";
 import { workforceHandlers } from "./modules/workforce/index.js";
 import { getBearerSession } from "./session-from-bearer.js";
 import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
 
 export type JsonHttpResult = { status: number; body: unknown };
+
+const JOB_APPLICATION_STATUSES: readonly ApplicationStatus[] = [
+  "submitted",
+  "in_review",
+  "approved",
+  "rejected",
+  "archived"
+];
+
+function parseJobApplicationStatusQuery(raw: string | undefined): ApplicationStatus | undefined {
+  const s = raw?.trim();
+  if (!s) return undefined;
+  return JOB_APPLICATION_STATUSES.includes(s as ApplicationStatus) ? (s as ApplicationStatus) : undefined;
+}
 
 /** GET /v1/tenants/:tenantId/employee-profile */
 export async function runTenantEmployeeProfileGet(
@@ -27,6 +42,44 @@ export async function runTenantEmployeeProfileGet(
       companyId: scope.companyId ?? undefined,
       userId: s.userId,
       targetUserId: query.targetUserId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/jobs/:jobId/applications — inscritos da vaga (evita cold start Express na Vercel). */
+export async function runTenantJobApplicationsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  jobId: string,
+  query: {
+    status?: string;
+    candidateName?: string;
+    page?: string;
+    pageSize?: string;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await recruitmentHandlers.listJobApplications({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      jobId,
+      status: parseJobApplicationStatusQuery(query.status),
+      candidateName: query.candidateName,
+      page: query.page,
+      pageSize: query.pageSize
     });
     return { status: 200, body: result };
   } catch (error) {
