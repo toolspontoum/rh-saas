@@ -358,7 +358,7 @@ export default function NoticesPage() {
 
       {openTypeModal ? (
         <div className="modal-backdrop" onClick={() => setOpenTypeModal(false)}>
-          <div className="modal-card" style={{ width: "560px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card modal-card--md" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Novo comunicado</h3>
             <p className="muted" style={{ marginTop: 0 }}>
               Selecione o tipo de envio do comunicado.

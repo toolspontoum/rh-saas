@@ -696,11 +696,10 @@ export default function EmployeeAutoImportPage() {
       {detailId ? (
         <div className="modal-backdrop" role="presentation">
           <div
-            className="modal-card"
+            className="modal-card modal-card--xl"
             role="dialog"
             aria-modal="true"
             aria-label="Pré-cadastro"
-            style={{ width: "min(1100px, 100%)" }}
           >
             <h3>Pré-cadastro</h3>
             {detailLoading ? (
@@ -848,7 +847,7 @@ export default function EmployeeAutoImportPage() {
 
       {batchDetailId ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Log detalhado" style={{ maxWidth: 720 }}>
+          <div className="modal-card modal-card--lg" role="dialog" aria-modal="true" aria-label="Log detalhado">
             <h3>Log do envio</h3>
             {!batchDetail ? (
               <p>Carregando…</p>

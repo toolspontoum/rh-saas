@@ -229,7 +229,7 @@ export default function EmployeeDocumentsPage() {
 
       {uploadRequest ? (
         <div className="modal-backdrop" onClick={() => setUploadRequest(null)}>
-          <div className="modal-card stack" style={{ width: "560px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card stack modal-card--md" onClick={(e) => e.stopPropagation()}>
             <div className="section-header">
               <h3 style={{ margin: 0 }}>
                 {uploadRequest.workflow === "signature" ? "Enviar documento assinado" : "Enviar documento"}

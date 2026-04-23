@@ -433,7 +433,7 @@ export default function PublicJobDetailPage() {
 
   if (loading) {
     return (
-      <main className="container wide">
+      <main className="container wide apply-flow-main">
         <p>Carregando vaga...</p>
       </main>
     );
@@ -441,14 +441,14 @@ export default function PublicJobDetailPage() {
 
   if (!job) {
     return (
-      <main className="container wide">
+      <main className="container wide apply-flow-main">
         <p className="error">{error ?? "Vaga não encontrada."}</p>
       </main>
     );
   }
 
   return (
-    <main className="container wide stack">
+    <main className="container wide stack apply-flow-main">
       <div className="section-header">
         <h1>{job.title}</h1>
         <button className="secondary" onClick={() => router.push(`/vagas/${tenantSlug}`)}>
