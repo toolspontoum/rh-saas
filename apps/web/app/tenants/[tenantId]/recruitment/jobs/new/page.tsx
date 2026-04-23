@@ -100,6 +100,7 @@ export default function RecruitmentCreateJobPage() {
   const router = useRouter();
   const tenantId = params.tenantId;
 
+  const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [department, setDepartment] = useState("");
@@ -206,6 +207,7 @@ export default function RecruitmentCreateJobPage() {
       })
       .filter((item) => item.label.length > 0);
 
+    setSubmitting(true);
     try {
       const result = await apiFetch<{ id: string }>(`/v1/tenants/${tenantId}/jobs`, {
         method: "POST",
@@ -234,6 +236,8 @@ export default function RecruitmentCreateJobPage() {
       router.push(`/tenants/${tenantId}/recruitment/jobs/${result.id}`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -501,7 +505,9 @@ export default function RecruitmentCreateJobPage() {
             </label>
           </div>
 
-          <button type="submit">Salvar vaga</button>
+          <button type="submit" disabled={submitting}>
+            {submitting ? "Salvando…" : "Salvar vaga"}
+          </button>
         </form>
       </div>
     </main>

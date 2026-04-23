@@ -48,7 +48,9 @@ export class RecruitmentService {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
     const companyId = this.requireAdminCompany(input.companyId);
     return this.repository.createJob({ ...input, companyId });
@@ -128,7 +130,9 @@ export class RecruitmentService {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
     const scopeCompanyId = this.requireAdminCompany(input.companyId);
     const previous = await this.repository.getJobById(input.tenantId, input.jobId, scopeCompanyId);
@@ -168,7 +172,9 @@ export class RecruitmentService {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     const scopeCompanyId = this.requireAdminCompany(input.companyId);

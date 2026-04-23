@@ -198,6 +198,7 @@ export default function RecruitmentEditJobPage() {
   const [aiExperienceMonthsDraft, setAiExperienceMonthsDraft] = useState("");
   const [aiExperienceList, setAiExperienceList] = useState<ExperienceCriterion[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const states = listBrazilStates();
   const cities = listBrazilCitiesByState(state);
   const filteredCities = city.trim()
@@ -339,6 +340,7 @@ export default function RecruitmentEditJobPage() {
       })
       .filter((item) => item.label.length > 0);
 
+    setSubmitting(true);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/jobs/${jobId}`, {
         method: "PATCH",
@@ -367,6 +369,8 @@ export default function RecruitmentEditJobPage() {
       router.push(`/tenants/${tenantId}/recruitment/jobs/${jobId}`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -613,7 +617,9 @@ export default function RecruitmentEditJobPage() {
             </label>
           </div>
 
-          <button type="submit">Salvar alterações</button>
+          <button type="submit" disabled={submitting}>
+            {submitting ? "Salvando…" : "Salvar alterações"}
+          </button>
         </form>
       </div>
     </main>
