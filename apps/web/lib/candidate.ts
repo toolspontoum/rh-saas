@@ -111,13 +111,29 @@ export async function saveCandidateProfile(payload: Record<string, unknown>) {
   });
 }
 
+const RESUME_AI_CLIENT_TIMEOUT_MS = 280_000;
+
 export async function processCandidateResumeWithAi(file: File) {
   const form = new FormData();
   form.append("file", file);
-  return apiFetch<CandidateProfile>("/v1/me/candidate-profile/resume/process-with-ai", {
-    method: "POST",
-    body: form
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), RESUME_AI_CLIENT_TIMEOUT_MS);
+  try {
+    return await apiFetch<CandidateProfile>("/v1/me/candidate-profile/resume/process-with-ai", {
+      method: "POST",
+      body: form,
+      signal: controller.signal
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error(
+        "O processamento com IA demorou demais e foi interrompido. Tente com um PDF menor, menos páginas, ou tente novamente em alguns minutos."
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 type UploadIntent = {

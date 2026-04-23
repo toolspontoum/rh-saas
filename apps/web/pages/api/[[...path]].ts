@@ -176,6 +176,17 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         req.method === "POST" &&
         segments.length === 5 &&
         segments[2] === "candidate-profile" &&
+        segments[3] === "resume" &&
+        segments[4] === "process-with-ai"
+      ) {
+        const outAiResume = await candidateWrites.runCandidateResumeProcessWithAiPost(authCandidate, req, res);
+        return res.status(outAiResume.status).json(outAiResume.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[2] === "candidate-profile" &&
         segments[3] === "avatar" &&
         segments[4] === "upload-intent"
       ) {
