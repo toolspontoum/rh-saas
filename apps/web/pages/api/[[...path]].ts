@@ -90,6 +90,19 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(out.status).json(out.body);
     }
 
+    if (
+      req.method === "POST" &&
+      segments.length === 4 &&
+      segments[0] === "public" &&
+      segments[1] === "jobs" &&
+      segments[3] === "quick-apply"
+    ) {
+      const bodyQuick = await readJsonBody(req);
+      const { runPublicQuickApplyPost } = await import("@vv/api/run-public-jobs");
+      const outQuick = await runPublicQuickApplyPost(segments[2] ?? "", bodyQuick);
+      return res.status(outQuick.status).json(outQuick.body);
+    }
+
     if (req.method === "GET" && pathKey === "v1/platform/me") {
       const { runPlatformMeGet } = await import("@vv/api/run-platform-me");
       const { status, body } = await runPlatformMeGet(headerAuthorization(req));
@@ -102,6 +115,16 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(status).json(body);
     }
 
+    if (req.method === "GET" && segments.length === 3 && segments[0] === "v1" && segments[1] === "skills" && segments[2] === "tags") {
+      const qSkills = req.query;
+      const { runSkillTagsGet } = await import("@vv/api/run-candidate-me-writes");
+      const outSkills = await runSkillTagsGet(headerAuthorization(req), {
+        query: typeof qSkills.query === "string" ? qSkills.query : undefined,
+        limit: typeof qSkills.limit === "string" ? qSkills.limit : undefined
+      });
+      return res.status(outSkills.status).json(outSkills.body);
+    }
+
     if (req.method === "GET" && segments.length >= 2 && segments[0] === "v1" && segments[1] === "me") {
       const q = req.query;
       const { runMeCandidateGet } = await import("@vv/api/run-tenant-data-gets");
@@ -110,6 +133,81 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined
       });
       if (out) return res.status(out.status).json(out.body);
+    }
+
+    /**
+     * Candidato autenticado: PUT/POST/DELETE em /v1/me/* sem cold start do Express (504 na Vercel em candidaturas).
+     */
+    if (segments[0] === "v1" && segments[1] === "me") {
+      const authCandidate = headerAuthorization(req);
+      const candidateWrites = await import("@vv/api/run-candidate-me-writes");
+
+      if (req.method === "PUT" && segments.length === 3 && segments[2] === "candidate-profile") {
+        const bodyCp = await readJsonBody(req);
+        const outCp = await candidateWrites.runCandidatePutProfile(authCandidate, bodyCp);
+        return res.status(outCp.status).json(outCp.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[2] === "candidate-profile" &&
+        segments[3] === "resume" &&
+        segments[4] === "upload-intent"
+      ) {
+        const bodyRi = await readJsonBody(req);
+        const outRi = await candidateWrites.runCandidateResumeUploadIntentPost(authCandidate, bodyRi);
+        return res.status(outRi.status).json(outRi.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[2] === "candidate-profile" &&
+        segments[3] === "resume" &&
+        segments[4] === "confirm-upload"
+      ) {
+        const bodyRc = await readJsonBody(req);
+        const outRc = await candidateWrites.runCandidateResumeConfirmUploadPost(authCandidate, bodyRc);
+        return res.status(outRc.status).json(outRc.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[2] === "candidate-profile" &&
+        segments[3] === "avatar" &&
+        segments[4] === "upload-intent"
+      ) {
+        const bodyAi = await readJsonBody(req);
+        const outAi = await candidateWrites.runCandidateAvatarUploadIntentPost(authCandidate, bodyAi);
+        return res.status(outAi.status).json(outAi.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[2] === "candidate-profile" &&
+        segments[3] === "avatar" &&
+        segments[4] === "confirm-upload"
+      ) {
+        const bodyAc = await readJsonBody(req);
+        const outAc = await candidateWrites.runCandidateAvatarConfirmUploadPost(authCandidate, bodyAc);
+        return res.status(outAc.status).json(outAc.body);
+      }
+
+      if (req.method === "POST" && segments.length === 5 && segments[2] === "jobs" && segments[4] === "apply") {
+        const jobIdApply = segments[3] ?? "";
+        const bodyApply = await readJsonBody(req);
+        const outApply = await candidateWrites.runCandidateApplyToJobPost(authCandidate, jobIdApply, bodyApply);
+        return res.status(outApply.status).json(outApply.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[2] === "jobs" && segments[4] === "application") {
+        const jobIdWd = segments[3] ?? "";
+        const outWd = await candidateWrites.runCandidateWithdrawApplicationDelete(authCandidate, jobIdWd);
+        return res.status(outWd.status).json(outWd.body);
+      }
     }
 
     if (req.method === "GET" && segments.length === 4 && segments[0] === "v1" && segments[1] === "tenants") {
@@ -655,6 +753,24 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** POST /v1/tenants/:tenantId/features/:featureCode/validate — usado ao abrir módulos no painel. */
+    if (
+      req.method === "POST" &&
+      segments.length === 6 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "features" &&
+      segments[5] === "validate"
+    ) {
+      const { runTenantFeatureValidatePost } = await import("@vv/api/run-tenant-writes");
+      const outFv = await runTenantFeatureValidatePost(
+        headerAuthorization(req),
+        segments[2] ?? "",
+        segments[4] ?? ""
+      );
+      return res.status(outFv.status).json(outFv.body);
+    }
+
     /** Vagas (recrutamento): POST/PATCH/DELETE sem cold start do Express (504 ao salvar na Vercel). */
     if (
       segments.length >= 4 &&
@@ -692,6 +808,61 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const outJobs = await runTenantJobDelete(authJobs, tenantJobs, jobIdSeg, xCompanyJobs);
         return res.status(outJobs.status).json(outJobs.body);
       }
+    }
+
+    /** POST /v1/tenants/:tenantId/employees — upsert colaborador sem cold start. */
+    if (
+      req.method === "POST" &&
+      segments.length === 4 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "employees"
+    ) {
+      const tenantEmp = segments[2] ?? "";
+      const companyRawEmp = req.headers["x-tenant-company-id"];
+      const xCompanyEmp =
+        typeof companyRawEmp === "string"
+          ? companyRawEmp
+          : Array.isArray(companyRawEmp)
+            ? companyRawEmp[0]
+            : undefined;
+      const { runTenantEmployeesPost } = await import("@vv/api/run-tenant-writes");
+      const authEmp = headerAuthorization(req);
+      const bodyEmp = await readJsonBody(req);
+      const outEmp = await runTenantEmployeesPost(
+        authEmp,
+        tenantEmp,
+        {
+          fullName: typeof bodyEmp.fullName === "string" ? bodyEmp.fullName : undefined,
+          email: typeof bodyEmp.email === "string" ? bodyEmp.email : undefined,
+          cpf: typeof bodyEmp.cpf === "string" ? bodyEmp.cpf : undefined,
+          phone: typeof bodyEmp.phone === "string" ? bodyEmp.phone : undefined
+        },
+        xCompanyEmp
+      );
+      return res.status(outEmp.status).json(outEmp.body);
+    }
+
+    /** POST /v1/tenants/:tenantId/companies — criar empresa/projeto sem cold start. */
+    if (
+      req.method === "POST" &&
+      segments.length === 4 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "companies"
+    ) {
+      const tenantCoNew = segments[2] ?? "";
+      const { runTenantCompaniesPost } = await import("@vv/api/run-tenant-writes");
+      const authCoNew = headerAuthorization(req);
+      const bodyCoNew = await readJsonBody(req);
+      const taxRawNew = bodyCoNew.taxId;
+      const taxIdNew =
+        taxRawNew === null ? null : typeof taxRawNew === "string" ? taxRawNew : undefined;
+      const outCoNew = await runTenantCompaniesPost(authCoNew, tenantCoNew, {
+        name: typeof bodyCoNew.name === "string" ? bodyCoNew.name : undefined,
+        taxId: taxIdNew
+      });
+      return res.status(outCoNew.status).json(outCoNew.body);
     }
 
     /** Empresas: PATCH/DELETE sem cold start do Express (504 ao salvar renome na Vercel). */
