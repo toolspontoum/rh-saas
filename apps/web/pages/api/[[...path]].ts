@@ -467,6 +467,31 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** Lookup e-mail/CPF para pré-cadastro IA (GET leve; espelha App Router em app/api/.../employees/...). */
+    if (
+      req.method === "GET" &&
+      segments.length === 5 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "employees"
+    ) {
+      const tenantLu = segments[2] ?? "";
+      const leaf = segments[4] ?? "";
+      const qLu = req.query;
+      if (leaf === "lookup-by-email") {
+        const { runTenantEmployeeLookupByEmailGet } = await import("@vv/api/run-tenant-employee-lookup-gets");
+        const email = typeof qLu.email === "string" ? qLu.email : "";
+        const outLu = await runTenantEmployeeLookupByEmailGet(headerAuthorization(req), tenantLu, email);
+        return res.status(outLu.status).json(outLu.body);
+      }
+      if (leaf === "lookup-by-cpf") {
+        const { runTenantEmployeeLookupByCpfGet } = await import("@vv/api/run-tenant-employee-lookup-gets");
+        const cpf = typeof qLu.cpf === "string" ? qLu.cpf : "";
+        const outCpf = await runTenantEmployeeLookupByCpfGet(headerAuthorization(req), tenantLu, cpf);
+        return res.status(outCpf.status).json(outCpf.body);
+      }
+    }
+
     /** Cadastro automático (employee-prereg): evita carregar Express no cold start (504 na Vercel). */
     if (
       segments.length >= 4 &&
