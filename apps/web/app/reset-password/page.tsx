@@ -24,10 +24,36 @@ export default function ResetPasswordPage() {
       try {
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
+        const tokenHash = url.searchParams.get("token_hash");
+        const typeRaw = url.searchParams.get("type");
+
+        // Alguns templates/flows do Supabase enviam `code` (PKCE),
+        // outros enviam `token_hash` + `type` (invite/recovery/etc).
         if (code) {
           const exchanged = await supabase.auth.exchangeCodeForSession(code);
           if (exchanged.error) {
             setError(exchanged.error.message);
+            setPreparing(false);
+            return;
+          }
+        } else if (tokenHash && typeRaw) {
+          const type =
+            typeRaw === "invite" ||
+            typeRaw === "recovery" ||
+            typeRaw === "signup" ||
+            typeRaw === "magiclink" ||
+            typeRaw === "email_change"
+              ? typeRaw
+              : null;
+          if (!type) {
+            setError("Link inválido. Solicite um novo e-mail para definir sua senha.");
+            setPreparing(false);
+            return;
+          }
+
+          const verified = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+          if (verified.error) {
+            setError(verified.error.message);
             setPreparing(false);
             return;
           }
