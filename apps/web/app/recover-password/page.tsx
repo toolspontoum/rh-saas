@@ -1,22 +1,30 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { supabase } from "../../lib/supabase";
 import { getPublicWebUrl } from "../../lib/public-web-url";
 
 export default function RecoverPasswordPage() {
   const router = useRouter();
-  const search = useSearchParams();
-  const initialEmail = useMemo(() => (search?.get("email") ?? "").trim(), [search]);
 
-  const [email, setEmail] = useState(initialEmail);
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   const normalized = email.trim().toLowerCase();
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const fromQuery = (url.searchParams.get("email") ?? "").trim();
+      if (fromQuery) setEmail(fromQuery);
+    } catch {
+      // ignora
+    }
+  }, []);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
