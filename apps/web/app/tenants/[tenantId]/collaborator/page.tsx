@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Eye, Lock, Mail, Pencil, Trash2 } from "lucide-react";
+import { Eye, Mail, Pencil, Trash2 } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
@@ -298,10 +298,7 @@ export default function CollaboratorListPage() {
                           }
                           onClick={() => void sendPasswordResetEmail(item.userId)}
                         >
-                          <span className="row" style={{ gap: 1, alignItems: "center" }}>
-                            <Mail size={14} />
-                            <Lock size={12} />
-                          </span>
+                          <Mail size={16} />
                         </button>
                         <button
                           type="button"
