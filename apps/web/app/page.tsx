@@ -67,7 +67,7 @@ export default function LoginPage() {
     return Boolean(window.localStorage.getItem(REMEMBER_EMAIL_KEY));
   });
   const [loading, setLoading] = useState(false);
-  const [recoveringPassword, setRecoveringPassword] = useState(false);
+  // recuperação de senha agora é uma página dedicada (/recover-password)
   const [resendingConfirm, setResendingConfirm] = useState(false);
   const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
@@ -164,30 +164,9 @@ export default function LoginPage() {
     }
   }
 
-  async function onRecoverPassword() {
-    setRecoverMsg(null);
-    setConfirmMsg(null);
-    setError(null);
-
-    if (!normalizedEmail) {
-      setError("Informe o e-mail para recuperar a senha.");
-      return;
-    }
-
-    setRecoveringPassword(true);
-    const redirectTo = `${getPublicWebUrl()}/reset-password`;
-
-    const { error: recoverError } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo
-    });
-    setRecoveringPassword(false);
-
-    if (recoverError) {
-      setError(recoverError.message);
-      return;
-    }
-
-    setRecoverMsg("Enviamos as instruções de recuperação para seu e-mail.");
+  function onRecoverPassword() {
+    const emailParam = normalizedEmail ? `?email=${encodeURIComponent(normalizedEmail)}` : "";
+    router.push(`/recover-password${emailParam}`);
   }
 
   async function onResendConfirmLink() {
@@ -286,9 +265,8 @@ export default function LoginPage() {
               className="secondary"
               type="button"
               onClick={onRecoverPassword}
-              disabled={recoveringPassword}
             >
-              {recoveringPassword ? "Enviando..." : "Recuperar senha"}
+              Recuperar senha
             </button>
           </div>
         </div>

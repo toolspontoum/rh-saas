@@ -6,10 +6,9 @@ import { useRouter } from "next/navigation";
 import { clearToken, setToken } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
 
-export default function ResetPasswordPage() {
+export default function FirstAccessPage() {
   const router = useRouter();
 
-  const [mode, setMode] = useState<"create" | "reset">("reset");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,12 +26,7 @@ export default function ResetPasswordPage() {
         const code = url.searchParams.get("code");
         const tokenHash = url.searchParams.get("token_hash");
         const typeRaw = url.searchParams.get("type");
-        if (typeRaw === "invite" || typeRaw === "signup") {
-          setMode("create");
-        }
 
-        // Alguns templates/flows do Supabase enviam `code` (PKCE),
-        // outros enviam `token_hash` + `type` (invite/recovery/etc).
         if (code) {
           const exchanged = await supabase.auth.exchangeCodeForSession(code);
           if (exchanged.error) {
@@ -50,7 +44,7 @@ export default function ResetPasswordPage() {
               ? typeRaw
               : null;
           if (!type) {
-            setError("Link inválido. Solicite um novo e-mail para definir sua senha.");
+            setError("Link inválido. Solicite um novo e-mail para criar sua senha.");
             setPreparing(false);
             return;
           }
@@ -84,12 +78,12 @@ export default function ResetPasswordPage() {
     setOkMsg(null);
 
     if (password.length < 6) {
-      setError("A nova senha deve ter no minimo 6 caracteres.");
+      setError("A senha deve ter no mínimo 6 caracteres.");
       return;
     }
 
     if (password !== confirmPassword) {
-      setError("As senhas nao conferem.");
+      setError("As senhas não conferem.");
       return;
     }
 
@@ -102,7 +96,7 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    setOkMsg("Senha redefinida com sucesso. Voce ja pode entrar.");
+    setOkMsg("Senha criada com sucesso. Agora você já pode entrar.");
     clearToken();
     await supabase.auth.signOut();
     setTimeout(() => router.push("/"), 1200);
@@ -111,35 +105,31 @@ export default function ResetPasswordPage() {
   return (
     <main className="container">
       <div className="card" style={{ maxWidth: 520, margin: "60px auto" }}>
-        <h1>{mode === "create" ? "Criar senha" : "Redefinir senha"}</h1>
-        <p className="muted">
-          {mode === "create"
-            ? "Defina uma senha para concluir seu primeiro acesso."
-            : "Digite sua nova senha para concluir a recuperacao de acesso."}
-        </p>
+        <h1>Criar senha</h1>
+        <p className="muted">Defina uma senha para concluir seu primeiro acesso.</p>
 
-        {preparing ? <p>Validando link de recuperacao...</p> : null}
+        {preparing ? <p>Validando link...</p> : null}
 
         <form className="stack" onSubmit={onSubmit}>
           <label>
-            Nova senha
+            Senha
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Minimo 6 caracteres"
+              placeholder="Mínimo 6 caracteres"
               minLength={6}
               required
             />
           </label>
 
           <label>
-            Confirmar nova senha
+            Confirmar senha
             <input
               type="password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="Repita a nova senha"
+              placeholder="Repita a senha"
               minLength={6}
               required
             />
@@ -149,11 +139,14 @@ export default function ResetPasswordPage() {
           {okMsg ? <p>{okMsg}</p> : null}
 
           <button type="submit" disabled={loading || preparing}>
-            {loading ? "Salvando..." : "Salvar nova senha"}
+            {loading ? "Salvando..." : "Criar senha"}
           </button>
-          <button className="secondary" type="button" onClick={() => router.push("/")}>Voltar ao login</button>
+          <button className="secondary" type="button" onClick={() => router.push("/")}>
+            Voltar ao login
+          </button>
         </form>
       </div>
     </main>
   );
 }
+
