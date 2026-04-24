@@ -17,7 +17,7 @@ type JobOption = {
 type TenantApplication = {
   id: string;
   jobId: string;
-  status: "submitted" | "in_review" | "approved" | "rejected" | "archived";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   createdAt: string;
   candidate: {
     fullName: string;
@@ -44,11 +44,12 @@ export default function RecruitmentCandidatesPage() {
   const [jobFilter, setJobFilter] = useSavedState(`candidates_job_${tenantId}`, "all");
   const [jobSearch, setJobSearch] = useSavedState(`candidates_job_search_${tenantId}`, "");
   const [statusFilter, setStatusFilter] = useSavedState<
-    "all" | "submitted" | "in_review" | "approved" | "rejected" | "archived"
+    "all" | "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn"
   >(`candidates_status_${tenantId}`, "all");
   const [dateFrom, setDateFrom] = useSavedState(`candidates_from_${tenantId}`, "");
   const [dateTo, setDateTo] = useSavedState(`candidates_to_${tenantId}`, "");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const q = new URLSearchParams({ page: "1", pageSize: "100" });
@@ -59,10 +60,16 @@ export default function RecruitmentCandidatesPage() {
     if (statusFilter !== "all") q.set("status", statusFilter);
     if (dateFrom.trim()) q.set("createdFrom", dateFrom.trim());
     if (dateTo.trim()) q.set("createdTo", dateTo.trim());
-    const data = await apiFetch<Paginated<TenantApplication>>(
-      `/v1/tenants/${tenantId}/recruitment/applications?${q.toString()}`
-    );
-    setItems(data.items);
+    setLoading(true);
+    try {
+      const data = await apiFetch<Paginated<TenantApplication>>(
+        `/v1/tenants/${tenantId}/recruitment/applications?${q.toString()}`
+      );
+      setItems(data.items ?? []);
+      setError(null);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -98,6 +105,7 @@ export default function RecruitmentCandidatesPage() {
     if (status === "in_review") return "Em análise";
     if (status === "approved") return "Aprovado";
     if (status === "rejected") return "Rejeitado";
+    if (status === "withdrawn") return "Candidatura cancelada";
     return "Arquivado";
   }
 
@@ -153,6 +161,7 @@ export default function RecruitmentCandidatesPage() {
               <option value="approved">Aprovado</option>
               <option value="rejected">Rejeitado</option>
               <option value="archived">Arquivado</option>
+              <option value="withdrawn">Candidatura cancelada</option>
             </select>
           </label>
         </div>
@@ -170,7 +179,11 @@ export default function RecruitmentCandidatesPage() {
       </div>
 
       <div className="card table-wrap">
-        {items.length === 0 ? (
+        {loading ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Carregando candidatos...
+          </p>
+        ) : items.length === 0 ? (
           <EmptyState title="Sem candidatos" description="Nenhum candidato encontrado com os filtros atuais." />
         ) : (
           <table className="table">

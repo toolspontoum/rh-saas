@@ -111,6 +111,13 @@ export class CoreAuthTenantService {
       prepostoCompanyId = (preRow as { id: string } | null)?.id ?? null;
     }
 
+    let resolvedEmail = emailFromToken;
+    if (!resolvedEmail) {
+      const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+      resolvedEmail = data?.user?.email ?? null;
+    }
+    const isPlatformSuperadmin = await isPlatformAdminUser(userId, resolvedEmail);
+
     return {
       tenantId,
       roles,
@@ -118,7 +125,8 @@ export class CoreAuthTenantService {
       features,
       subscription,
       aiProvider: tenantAiProvider,
-      aiEffectiveProvider
+      aiEffectiveProvider,
+      isPlatformSuperadmin
     };
   }
 

@@ -129,7 +129,7 @@ const listApplicationsSchema = z.object({
   userId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
   jobId: z.string().uuid(),
-  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived"]).optional(),
+  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived", "withdrawn"]).optional(),
   candidateName: z.string().min(1).max(160).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20)
@@ -141,7 +141,7 @@ const updateApplicationStatusSchema = z.object({
   companyId: z.string().uuid().nullable().optional(),
   jobId: z.string().uuid(),
   applicationId: z.string().uuid(),
-  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived"])
+  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived", "withdrawn"])
 });
 
 const requeueApplicationAiAnalysisSchema = z.object({
@@ -160,7 +160,7 @@ const listTenantApplicationsSchema = z.object({
   candidateEmail: z.string().max(200).optional(),
   candidateCpf: z.string().max(20).optional(),
   jobId: z.string().uuid().optional(),
-  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived"]).optional(),
+  status: z.enum(["submitted", "in_review", "approved", "rejected", "archived", "withdrawn"]).optional(),
   createdFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   createdTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.coerce.number().int().positive().default(1),

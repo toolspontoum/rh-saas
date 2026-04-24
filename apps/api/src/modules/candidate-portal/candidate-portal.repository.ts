@@ -79,7 +79,7 @@ type JobCatalogRow = {
 
 type MyApplicationRow = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   cover_letter: string | null;
   created_at: string;
   updated_at: string;
@@ -131,7 +131,7 @@ type MyApplicationRow = {
 
 type MyApplicationByJobRow = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected" | "archived";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   job_id: string;
   candidates:
     | {
@@ -854,13 +854,20 @@ export class CandidatePortalRepository {
   async getMyApplicationByJob(input: {
     userId: string;
     jobId: string;
-  }): Promise<{ id: string; status: MyJobApplication["status"] } | null> {
+  }): Promise<{
+    id: string;
+    status: MyJobApplication["status"];
+    coverLetter: string | null;
+    screeningAnswers: JobQuestionAnswer[];
+  } | null> {
     const { data, error } = await this.db
       .from("job_applications")
       .select(
         `
         id,
         status,
+        cover_letter,
+        screening_answers,
         job_id,
         candidates!inner (
           id,
@@ -874,30 +881,88 @@ export class CandidatePortalRepository {
 
     if (error) throw error;
     if (!data) return null;
-    const row = data as MyApplicationByJobRow;
+    const row = data as MyApplicationByJobRow & {
+      cover_letter: string | null;
+      screening_answers: unknown;
+    };
+    const screeningAnswers = Array.isArray(row.screening_answers)
+      ? (row.screening_answers as JobQuestionAnswer[])
+      : [];
     return {
       id: row.id,
-      status: row.status
+      status: row.status,
+      coverLetter: row.cover_letter ?? null,
+      screeningAnswers
     };
+  }
+
+  async reactivateWithdrawnApplication(input: {
+    applicationId: string;
+    tenantId: string;
+    coverLetter: string | null;
+    screeningAnswers: JobQuestionAnswer[];
+  }): Promise<void> {
+    const { error } = await this.db
+      .from("job_applications")
+      .update({
+        status: "submitted",
+        cover_letter: input.coverLetter,
+        screening_answers: input.screeningAnswers,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", input.applicationId)
+      .eq("tenant_id", input.tenantId)
+      .eq("status", "withdrawn");
+    if (error) throw error;
   }
 
   async deleteMyApplicationByJob(input: {
     userId: string;
     jobId: string;
-  }): Promise<{ ok: true; removed: boolean }> {
+  }): Promise<{ ok: true; removed: boolean; previousStatus: MyJobApplication["status"] | null }> {
     const current = await this.getMyApplicationByJob(input);
-    if (!current) return { ok: true, removed: false };
-    if (current.status === "approved") {
-      throw new Error("CANNOT_WITHDRAW_APPROVED_APPLICATION");
+    if (!current) return { ok: true, removed: false, previousStatus: null };
+    if (current.status === "withdrawn") {
+      return { ok: true, removed: false, previousStatus: "withdrawn" };
     }
 
     const { error } = await this.db
       .from("job_applications")
-      .delete()
+      .update({ status: "withdrawn", updated_at: new Date().toISOString() })
       .eq("id", current.id);
 
     if (error) throw error;
-    return { ok: true, removed: true };
+    return { ok: true, removed: true, previousStatus: current.status };
+  }
+
+  async listManagementEmailsForCompany(tenantId: string, companyId: string): Promise<string[]> {
+    const { data: profiles, error: profileError } = await this.db
+      .from("tenant_user_profiles")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("company_id", companyId);
+    if (profileError) throw profileError;
+    const userIds = [...new Set((profiles ?? []).map((p: { user_id: string }) => p.user_id))];
+    if (userIds.length === 0) return [];
+
+    const { data: roles, error: rolesError } = await this.db
+      .from("user_tenant_roles")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .in("user_id", userIds)
+      .in("role", ["owner", "admin", "manager"]);
+    if (rolesError) throw rolesError;
+
+    const mgrIds = [...new Set((roles ?? []).map((r: { user_id: string }) => r.user_id))];
+    const emails: string[] = [];
+    for (const uid of mgrIds.slice(0, 40)) {
+      const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(uid);
+      if (authErr) continue;
+      const em = authData.user?.email?.trim().toLowerCase();
+      if (em) emails.push(em);
+    }
+    return [...new Set(emails)];
   }
 
   async listSkillTags(input: { query?: string; limit: number }): Promise<SkillTag[]> {

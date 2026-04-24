@@ -3,7 +3,13 @@ import type { JobAiScreeningCriteria } from "../../lib/ai-screening-criteria.js"
 export type { JobAiScreeningCriteria };
 
 export type JobStatus = "draft" | "published" | "closed";
-export type ApplicationStatus = "submitted" | "in_review" | "approved" | "rejected" | "archived";
+export type ApplicationStatus =
+  | "submitted"
+  | "in_review"
+  | "approved"
+  | "rejected"
+  | "archived"
+  | "withdrawn";
 export type JobQuestionType = "yes_no" | "document_upload" | "text";
 
 /** Documentos exigidos na candidatura (abas/tipos alinhados ao colaborador). */

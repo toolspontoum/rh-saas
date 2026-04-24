@@ -89,7 +89,7 @@ export type SkillTag = {
 
 export type MyJobApplication = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected" | "archived";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   coverLetter: string | null;
   createdAt: string;
   updatedAt: string;

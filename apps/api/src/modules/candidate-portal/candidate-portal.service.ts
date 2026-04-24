@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { env } from "../../config/env.js";
+import { withTimeout } from "../../lib/with-timeout.js";
 import {
   extractCandidateProfileFromResumeFile,
   type CandidateProfileAiExtract
@@ -726,6 +727,11 @@ export class CandidatePortalService {
       input.screeningAnswers ?? []
     );
 
+    const existingApplication = await this.repository.getMyApplicationByJob({
+      userId: input.userId,
+      jobId: job.id
+    });
+
     const existingCandidate = await this.repository.getTenantCandidateByUser(job.tenantId, input.userId);
     let candidateId = existingCandidate?.id;
 
@@ -751,20 +757,35 @@ export class CandidatePortalService {
       });
     }
 
-    const application = await this.repository.createApplication({
-      tenantId: job.tenantId,
-      jobId: job.id,
-      candidateId,
-      coverLetter: coverLetterHtml,
-      screeningAnswers: normalizedAnswers
-    });
+    let applicationId: string;
+    let isReactivation = false;
+
+    if (existingApplication?.status === "withdrawn") {
+      await this.repository.reactivateWithdrawnApplication({
+        applicationId: existingApplication.id,
+        tenantId: job.tenantId,
+        coverLetter: coverLetterHtml,
+        screeningAnswers: normalizedAnswers
+      });
+      applicationId = existingApplication.id;
+      isReactivation = true;
+    } else {
+      const application = await this.repository.createApplication({
+        tenantId: job.tenantId,
+        jobId: job.id,
+        candidateId,
+        coverLetter: coverLetterHtml,
+        screeningAnswers: normalizedAnswers
+      });
+      applicationId = application.id;
+    }
 
     if (job.documentRequirements.length > 0) {
       await this.persistJobApplicationDocuments({
         tenantId: job.tenantId,
         companyId: job.companyId,
         userId: input.userId,
-        applicationId: application.id,
+        applicationId,
         jobTitle: job.title,
         employmentType: job.employmentType,
         fullName: profile.fullName,
@@ -775,8 +796,22 @@ export class CandidatePortalService {
       });
     }
 
-    scheduleApplicationResumeAnalysis(job.tenantId, application.id);
-    return application;
+    scheduleApplicationResumeAnalysis(job.tenantId, applicationId);
+
+    const managerEmails = await this.repository.listManagementEmailsForCompany(job.tenantId, job.companyId);
+    if (isReactivation) {
+      await this.sendManagersEmailSafe(managerEmails, {
+        subject: `Candidatura reativada — ${job.title}`,
+        html: `<p>Uma candidatura à vaga <strong>${profile.fullName ?? "Candidato"}</strong> / <strong>${job.title}</strong> foi reativada e voltou para análise.</p>`
+      });
+    } else {
+      await this.sendManagersEmailSafe(managerEmails, {
+        subject: `Nova candidatura — ${job.title}`,
+        html: `<p>Nova candidatura recebida para a vaga <strong>${job.title}</strong>.</p>`
+      });
+    }
+
+    return { id: applicationId };
   }
 
   async listMyApplications(input: {
@@ -790,12 +825,20 @@ export class CandidatePortalService {
   async getMyApplicationByJob(input: {
     userId: string;
     jobId: string;
-  }): Promise<{ applied: boolean; applicationId: string | null; status: MyJobApplication["status"] | null }> {
+  }): Promise<{
+    applied: boolean;
+    applicationId: string | null;
+    status: MyJobApplication["status"] | null;
+    coverLetter: string | null;
+    screeningAnswers: JobQuestionAnswer[];
+  }> {
     const application = await this.repository.getMyApplicationByJob(input);
     return {
-      applied: Boolean(application),
+      applied: Boolean(application && application.status !== "withdrawn"),
       applicationId: application?.id ?? null,
-      status: application?.status ?? null
+      status: application?.status ?? null,
+      coverLetter: application?.coverLetter ?? null,
+      screeningAnswers: application?.screeningAnswers ?? []
     };
   }
 
@@ -805,7 +848,48 @@ export class CandidatePortalService {
       throw new Error("JOB_NOT_FOUND");
     }
 
-    return this.repository.deleteMyApplicationByJob(input);
+    const before = await this.repository.getMyApplicationByJob(input);
+    const result = await this.repository.deleteMyApplicationByJob(input);
+    if (result.removed) {
+      const recipients = await this.repository.listManagementEmailsForCompany(job.tenantId, job.companyId);
+      const wasApproved = before?.status === "approved";
+      await this.sendManagersEmailSafe(recipients, {
+        subject: `Candidatura cancelada pelo candidato — ${job.title}`,
+        html: `<p>O candidato cancelou a candidatura na vaga <strong>${job.title}</strong>.</p>${
+          wasApproved ? "<p><strong>Esta candidatura estava aprovada.</strong></p>" : ""
+        }`
+      });
+    }
+    return { ok: result.ok, removed: result.removed };
+  }
+
+  private async sendManagersEmailSafe(
+    recipients: string[],
+    payload: { subject: string; html: string }
+  ): Promise<void> {
+    if (!env.RESEND_API_KEY || !env.EMAIL_FROM || recipients.length === 0) return;
+    try {
+      const res = await withTimeout(
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            from: env.EMAIL_FROM,
+            to: recipients.slice(0, 8),
+            subject: payload.subject,
+            html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">${payload.html}</div>`
+          })
+        }),
+        5000,
+        () => new Error("RESEND_TIMEOUT")
+      );
+      void res;
+    } catch {
+      // não bloquear fluxo do candidato
+    }
   }
 
   async listSkillTags(input: { query?: string; limit: number }): Promise<SkillTag[]> {

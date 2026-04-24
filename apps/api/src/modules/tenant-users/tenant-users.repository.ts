@@ -24,6 +24,7 @@ type TenantUserProfileRow = {
   status: TenantUserStatus;
   offboard_reason: string | null;
   offboarded_at: string | null;
+  data_purged_at?: string | null;
 };
 
 type TenantUserExtendedProfileRow = TenantUserProfileRow & {
@@ -78,17 +79,22 @@ export class TenantUsersRepository {
     search?: string;
     page: number;
     pageSize: number;
+    includePurgedProfiles?: boolean;
   }): Promise<PaginatedResult<TenantUser>> {
     const offset = (input.page - 1) * input.pageSize;
+    const showPurged = input.includePurgedProfiles === true;
 
     if (input.companyId) {
       let profileQuery = this.db
         .from("tenant_user_profiles")
         .select(
-          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at"
+          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
         )
         .eq("tenant_id", input.tenantId)
         .eq("company_id", input.companyId);
+      if (!showPurged) {
+        profileQuery = profileQuery.is("data_purged_at", null);
+      }
       if (input.status) profileQuery = profileQuery.eq("status", input.status);
       profileQuery = profileQuery.order("user_id", { ascending: true });
 
@@ -138,10 +144,13 @@ export class TenantUsersRepository {
       let profilesQuery = this.db
         .from("tenant_user_profiles")
         .select(
-          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at"
+          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
         )
         .eq("tenant_id", input.tenantId)
         .in("user_id", userIds);
+      if (!showPurged) {
+        profilesQuery = profilesQuery.is("data_purged_at", null);
+      }
       if (input.status) profilesQuery = profilesQuery.eq("status", input.status);
 
       const { data: profilesData, error: profilesError } = await profilesQuery;
@@ -240,7 +249,7 @@ export class TenantUsersRepository {
         userId: profile.user_id,
         tenantId,
         companyId: profile.company_id,
-        email,
+        email: profile.data_purged_at ? null : email,
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -248,7 +257,8 @@ export class TenantUsersRepository {
         offboardReason: profile.offboard_reason,
         offboardedAt: profile.offboarded_at,
         roles: [],
-        isAccessEnabled: false
+        isAccessEnabled: false,
+        dataPurgedAt: profile.data_purged_at ?? null
       };
 
       for (const row of rows) {
@@ -270,7 +280,7 @@ export class TenantUsersRepository {
     let profileQuery = this.db
       .from("tenant_user_profiles")
       .select(
-        "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at"
+        "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
       )
       .eq("tenant_id", tenantId)
       .eq("user_id", userId);
@@ -299,13 +309,14 @@ export class TenantUsersRepository {
       userId,
       tenantId,
       companyId: profile.company_id,
-      email: authData.user?.email ?? null,
+      email: profile.data_purged_at ? null : authData.user?.email ?? null,
       fullName: profile.full_name,
       cpf: profile.cpf,
       phone: profile.phone,
       status: profile.status,
       offboardReason: profile.offboard_reason,
       offboardedAt: profile.offboarded_at,
+      dataPurgedAt: profile.data_purged_at ?? null,
       roles: [],
       isAccessEnabled: false
     };
@@ -368,6 +379,38 @@ export class TenantUsersRepository {
     }
 
     return false;
+  }
+
+  async purgeCollaboratorData(input: {
+    tenantId: string;
+    userId: string;
+    companyId: string | null;
+    reason: string;
+  }): Promise<void> {
+    const companyId =
+      input.companyId ?? (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
+    const { error: pErr } = await this.db
+      .from("tenant_user_profiles")
+      .update({
+        full_name: "Colaborador excluído",
+        cpf: null,
+        phone: null,
+        status: "offboarded",
+        offboard_reason: input.reason,
+        offboarded_at: new Date().toISOString(),
+        data_purged_at: new Date().toISOString()
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .eq("company_id", companyId);
+    if (pErr) throw pErr;
+
+    const { error: rErr } = await this.db
+      .from("user_tenant_roles")
+      .update({ is_active: false })
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId);
+    if (rErr) throw rErr;
   }
 
   async deleteUserFromTenant(tenantId: string, userId: string): Promise<void> {

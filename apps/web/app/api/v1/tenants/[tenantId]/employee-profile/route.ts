@@ -45,7 +45,15 @@ export async function PUT(
       positionTitle: typeof body.positionTitle === "string" ? body.positionTitle : null,
       contractType: typeof body.contractType === "string" ? body.contractType : null,
       admissionDate: typeof body.admissionDate === "string" ? body.admissionDate : null,
-      baseSalary: typeof body.baseSalary === "number" ? body.baseSalary : null,
+      baseSalary: (() => {
+        const raw = body.baseSalary;
+        if (typeof raw === "number" && !Number.isNaN(raw)) return raw;
+        if (typeof raw === "string" && raw.trim()) {
+          const n = Number(raw);
+          return Number.isNaN(n) ? null : n;
+        }
+        return null;
+      })(),
       employeeTags: Array.isArray(body.employeeTags) ? (body.employeeTags as string[]) : []
     },
     xCompany

@@ -10,12 +10,15 @@ type RichTextEditorProps = {
   placeholder?: string;
   onChange: (next: string) => void;
   className?: string;
+  readOnly?: boolean;
 };
 
-export function RichTextEditor({ value, placeholder, onChange, className }: RichTextEditorProps) {
+export function RichTextEditor({ value, placeholder, onChange, className, readOnly }: RichTextEditorProps) {
   const modules = useMemo(
     () => ({
-      toolbar: [
+      toolbar: readOnly
+        ? false
+        : [
         [{ header: [1, 2, 3, false] }],
         ["bold", "italic", "underline", "strike"],
         [{ color: [] }, { background: [] }],
@@ -25,10 +28,10 @@ export function RichTextEditor({ value, placeholder, onChange, className }: Rich
         [{ align: [] }],
         ["blockquote", "code-block"],
         ["link", "image", "video"],
-        ["clean"]
-      ]
+            ["clean"]
+          ]
     }),
-    []
+    [readOnly]
   );
 
   const formats = [
@@ -59,6 +62,7 @@ export function RichTextEditor({ value, placeholder, onChange, className }: Rich
       onChange={onChange}
       modules={modules}
       formats={formats}
+      readOnly={readOnly}
       placeholder={placeholder ?? "Descricao"}
     />
   );

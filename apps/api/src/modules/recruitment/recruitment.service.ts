@@ -16,6 +16,7 @@ import type {
   PublicJobsListResult
 } from "./recruitment.types.js";
 import { env } from "../../config/env.js";
+import { withTimeout } from "../../lib/with-timeout.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { scheduleApplicationResumeAnalysis } from "../ai/schedule.js";
 
@@ -112,7 +113,12 @@ export class RecruitmentService {
       "preposto"
     ]);
     const listCompanyId = await this.resolveJobsListCompanyId(input);
-    const job = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
+    const job = await this.getJobRespectingCompanyScope({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      jobId: input.jobId,
+      listCompanyId
+    });
     if (!job) throw new Error("JOB_NOT_FOUND");
     return job;
   }
@@ -345,7 +351,8 @@ export class RecruitmentService {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst"
     ]);
 
     const listCompanyId = await this.resolveJobsListCompanyId({
@@ -694,19 +701,23 @@ export class RecruitmentService {
     `;
 
     try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: env.EMAIL_FROM,
-          to: [input.toEmail],
-          subject,
-          html
-        })
-      });
+      const response = await withTimeout(
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            from: env.EMAIL_FROM,
+            to: [input.toEmail],
+            subject,
+            html
+          })
+        }),
+        6000,
+        () => new Error("RESEND_TIMEOUT")
+      );
 
       return response.ok;
     } catch {

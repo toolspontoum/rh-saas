@@ -16,7 +16,8 @@ const JOB_APPLICATION_STATUSES: readonly ApplicationStatus[] = [
   "in_review",
   "approved",
   "rejected",
-  "archived"
+  "archived",
+  "withdrawn"
 ];
 
 function parseJobApplicationStatusQuery(raw: string | undefined): ApplicationStatus | undefined {
