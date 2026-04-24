@@ -22,6 +22,10 @@ export class TenantUsersService {
   }
 
   private passwordSetupRedirectUrl(): string {
+    return `${inferWebBaseUrl()}/first-access`;
+  }
+
+  private passwordRecoveryRedirectUrl(): string {
     return `${inferWebBaseUrl()}/reset-password`;
   }
 
@@ -44,7 +48,7 @@ export class TenantUsersService {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
-      redirectTo: this.passwordSetupRedirectUrl()
+      redirectTo: this.passwordRecoveryRedirectUrl()
     });
     if (error) {
       console.error("[tenant-users] resetPasswordForEmail failed", error);
