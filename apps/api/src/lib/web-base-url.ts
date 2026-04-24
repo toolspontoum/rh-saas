@@ -37,5 +37,19 @@ export function webBaseUrlFromHeader(value: string | null | undefined): string |
   const configured = normalizeOrigin(env.WEB_APP_URL ?? "");
   if (configured) allowed.push(configured);
 
-  return allowed.includes(candidate) ? candidate : null;
+  if (allowed.includes(candidate)) return candidate;
+
+  // Aceita variação com/sem "www." quando a allowlist já contempla o outro.
+  // Isso evita cair no Site URL (login) quando o frontend está sem www e o Supabase só permite com www (ou vice-versa).
+  try {
+    const url = new URL(candidate);
+    const host = url.hostname.toLowerCase();
+    const altHost = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
+    const alt = `${url.protocol}//${altHost}`;
+    if (allowed.includes(alt)) return alt;
+  } catch {
+    // ignora
+  }
+
+  return null;
 }
