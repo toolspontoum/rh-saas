@@ -63,6 +63,13 @@ const upsertBackofficeUserSchema = z.object({
   phone: z.string().max(30).optional()
 });
 
+const targetUserActionSchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  targetUserId: z.string().uuid()
+});
+
 export class TenantUsersHandlers {
   constructor(private readonly service: TenantUsersService) {}
 
@@ -99,5 +106,15 @@ export class TenantUsersHandlers {
   async upsertBackofficeUser(input: unknown) {
     const payload = upsertBackofficeUserSchema.parse(input);
     return this.service.upsertBackofficeUser(payload);
+  }
+
+  async resendEmployeeInvite(input: unknown) {
+    const payload = targetUserActionSchema.parse(input);
+    return this.service.resendEmployeeInvite(payload);
+  }
+
+  async sendEmployeePasswordResetEmail(input: unknown) {
+    const payload = targetUserActionSchema.parse(input);
+    return this.service.sendEmployeePasswordResetEmail(payload);
   }
 }

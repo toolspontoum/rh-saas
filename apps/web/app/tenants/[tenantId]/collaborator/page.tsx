@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Eye, Lock, Mail, Pencil, Trash2 } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
@@ -18,6 +18,7 @@ type TenantUser = {
   phone: string | null;
   status: "active" | "inactive" | "offboarded";
   roles: string[];
+  lastSignInAt?: string | null;
   /** Quando preenchido, o perfil foi anonimizado (visível sobretudo a superadmin). */
   dataPurgedAt?: string | null;
 };
@@ -47,6 +48,8 @@ export default function CollaboratorListPage() {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [resendInviteUserId, setResendInviteUserId] = useState<string | null>(null);
+  const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -116,6 +119,44 @@ export default function CollaboratorListPage() {
       return true;
     });
   }, [items, profiles, statusFilter, contractFilter, departmentFilter, search]);
+
+  function formatLastAccess(iso: string | null | undefined): string {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short"
+      });
+    } catch {
+      return "—";
+    }
+  }
+
+  async function resendInvite(userId: string) {
+    setResendInviteUserId(userId);
+    setError(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/resend-invite`, { method: "POST" });
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setResendInviteUserId(null);
+    }
+  }
+
+  async function sendPasswordResetEmail(userId: string) {
+    setPasswordResetUserId(userId);
+    setError(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/password-reset-email`, { method: "POST" });
+      await loadData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPasswordResetUserId(null);
+    }
+  }
 
   async function confirmDeleteCollaborator() {
     if (!deleteTarget) return;
@@ -195,6 +236,7 @@ export default function CollaboratorListPage() {
                 <th>Departamento</th>
                 <th>Contrato</th>
                 <th>Status</th>
+                <th>Último acesso</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -221,9 +263,46 @@ export default function CollaboratorListPage() {
                       )}
                     </td>
                     <td>
+                      {!item.lastSignInAt ? (
+                        <div className="stack" style={{ gap: 6 }}>
+                          <span className="muted" style={{ fontSize: "0.9em" }}>
+                            Nunca acessou
+                          </span>
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            style={{ padding: "4px 10px", fontSize: "0.85rem" }}
+                            disabled={Boolean(item.dataPurgedAt) || !item.email || resendInviteUserId === item.userId}
+                            onClick={() => void resendInvite(item.userId)}
+                          >
+                            {resendInviteUserId === item.userId ? "A enviar…" : "Reenviar convite"}
+                          </button>
+                        </div>
+                      ) : (
+                        formatLastAccess(item.lastSignInAt)
+                      )}
+                    </td>
+                    <td>
                       <div className="row">
                         <Link href={`/tenants/${tenantId}/collaborator/${item.userId}`} className="icon-btn" title="Visualizar" aria-label="Visualizar"><Eye size={16} /></Link>
                         <Link href={`/tenants/${tenantId}/collaborator/${item.userId}?mode=edit`} className="icon-btn" title="Editar" aria-label="Editar"><Pencil size={16} /></Link>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Enviar e-mail de redefinição de senha"
+                          aria-label="Enviar e-mail de redefinição de senha"
+                          disabled={
+                            Boolean(item.dataPurgedAt) ||
+                            !item.email ||
+                            passwordResetUserId === item.userId
+                          }
+                          onClick={() => void sendPasswordResetEmail(item.userId)}
+                        >
+                          <span className="row" style={{ gap: 1, alignItems: "center" }}>
+                            <Mail size={14} />
+                            <Lock size={12} />
+                          </span>
+                        </button>
                         <button
                           type="button"
                           className="icon-btn icon-danger"

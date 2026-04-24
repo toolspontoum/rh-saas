@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { inferWebBaseUrl } from "../../lib/web-base-url.js";
 import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js";
 import type { AppRole } from "../core-auth-tenant/core-auth-tenant.types.js";
 import type {
@@ -56,6 +57,7 @@ type CandidateLookupRow = {
 type AuthUserRow = {
   id: string;
   email: string | null;
+  lastSignInAt: string | null;
 };
 
 export class TenantUsersRepository {
@@ -166,7 +168,8 @@ export class TenantUsersRepository {
       if (authErr) throw authErr;
       authUsers.push({
         id: uid,
-        email: authData.user?.email ?? null
+        email: authData.user?.email ?? null,
+        lastSignInAt: authData.user?.last_sign_in_at ?? null
       });
     }
 
@@ -177,10 +180,13 @@ export class TenantUsersRepository {
       const profile = profileByUserId.get(row.user_id);
       if (!profile) continue;
 
+      const authMeta = authUsers.find((u) => u.id === row.user_id);
+
       const existing = grouped.get(row.user_id);
       if (existing) {
         existing.roles.push(row.role);
         existing.isAccessEnabled = existing.isAccessEnabled || row.is_active;
+        existing.lastSignInAt = existing.lastSignInAt ?? authMeta?.lastSignInAt ?? null;
         continue;
       }
 
@@ -196,7 +202,8 @@ export class TenantUsersRepository {
         offboardReason: profile.offboard_reason,
         offboardedAt: profile.offboarded_at,
         roles: [row.role],
-        isAccessEnabled: row.is_active
+        isAccessEnabled: row.is_active,
+        lastSignInAt: authMeta?.lastSignInAt ?? null
       });
     }
 
@@ -258,6 +265,7 @@ export class TenantUsersRepository {
         offboardedAt: profile.offboarded_at,
         roles: [],
         isAccessEnabled: false,
+        lastSignInAt: authData.user?.last_sign_in_at ?? null,
         dataPurgedAt: profile.data_purged_at ?? null
       };
 
@@ -318,7 +326,8 @@ export class TenantUsersRepository {
       offboardedAt: profile.offboarded_at,
       dataPurgedAt: profile.data_purged_at ?? null,
       roles: [],
-      isAccessEnabled: false
+      isAccessEnabled: false,
+      lastSignInAt: authData.user?.last_sign_in_at ?? null
     };
 
     for (const row of roleRows) {
@@ -666,14 +675,31 @@ export class TenantUsersRepository {
   }
 
   async inviteUserByEmail(input: { email: string; fullName: string }): Promise<string> {
+    const redirectTo = `${inferWebBaseUrl()}/reset-password`;
     const { data, error } = await this.db.auth.admin.inviteUserByEmail(input.email.toLowerCase(), {
       data: {
         full_name: input.fullName
-      }
+      },
+      redirectTo
     });
     if (error) throw error;
     if (!data.user?.id) throw new Error("USER_INVITE_FAILED");
     return data.user.id;
+  }
+
+  async getAuthUserAccessMeta(userId: string): Promise<{
+    email: string | null;
+    lastSignInAt: string | null;
+    emailConfirmedAt: string | null;
+  }> {
+    const { data, error } = await this.db.auth.admin.getUserById(userId);
+    if (error) throw error;
+    const u = data.user;
+    return {
+      email: u?.email ?? null,
+      lastSignInAt: u?.last_sign_in_at ?? null,
+      emailConfirmedAt: u?.email_confirmed_at ?? null
+    };
   }
 
   async upsertEmployeeInTenant(input: {

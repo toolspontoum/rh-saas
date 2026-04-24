@@ -471,6 +471,62 @@ export async function runTenantUserStatusPatch(
   }
 }
 
+/** POST /v1/tenants/:tenantId/users/:targetUserId/resend-invite */
+export async function runTenantUserResendInvitePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  targetUserId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await tenantUsersHandlers.resendEmployeeInvite({
+      tenantId,
+      actorUserId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      targetUserId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/users/:targetUserId/password-reset-email */
+export async function runTenantUserPasswordResetEmailPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  targetUserId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await tenantUsersHandlers.sendEmployeePasswordResetEmail({
+      tenantId,
+      actorUserId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      targetUserId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** DELETE /v1/tenants/:tenantId/users/:targetUserId */
 export async function runTenantUserDelete(
   authorizationHeader: string | null | undefined,
