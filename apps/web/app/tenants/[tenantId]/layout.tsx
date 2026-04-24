@@ -20,6 +20,8 @@ type TenantContext = {
   features: Array<{ code: string; isEnabled: boolean }>;
   aiProvider: "openai" | "gemini" | null;
   aiEffectiveProvider: "openai" | "gemini" | null;
+  /** Superadmin da plataforma (diagnóstico técnico, etc.). */
+  isPlatformSuperadmin?: boolean;
 };
 
 type TenantCompany = {

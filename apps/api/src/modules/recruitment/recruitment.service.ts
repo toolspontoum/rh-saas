@@ -16,6 +16,7 @@ import type {
   PublicJobsListResult
 } from "./recruitment.types.js";
 import { env } from "../../config/env.js";
+import { withTimeout } from "../../lib/with-timeout.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { scheduleApplicationResumeAnalysis } from "../ai/schedule.js";
 
@@ -112,7 +113,12 @@ export class RecruitmentService {
       "preposto"
     ]);
     const listCompanyId = await this.resolveJobsListCompanyId(input);
-    const job = await this.repository.getJobById(input.tenantId, input.jobId, listCompanyId);
+    const job = await this.getJobRespectingCompanyScope({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      jobId: input.jobId,
+      listCompanyId
+    });
     if (!job) throw new Error("JOB_NOT_FOUND");
     return job;
   }
@@ -345,11 +351,21 @@ export class RecruitmentService {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst"
     ]);
 
-    const scopeCompanyId = this.requireAdminCompany(input.companyId);
-    const job = await this.repository.getJobById(input.tenantId, input.jobId, scopeCompanyId);
+    const listCompanyId = await this.resolveJobsListCompanyId({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId
+    });
+    const job = await this.getJobRespectingCompanyScope({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      jobId: input.jobId,
+      listCompanyId
+    });
     if (!job) {
       throw new Error("JOB_NOT_FOUND");
     }
@@ -587,13 +603,24 @@ export class RecruitmentService {
       "preposto"
     ]);
 
-    const listCompanyId = await this.resolveJobsListCompanyId(input);
+    let listCompanyId = await this.resolveJobsListCompanyId(input);
 
-    const application = await this.repository.getTenantApplicationById({
+    let application = await this.repository.getTenantApplicationById({
       tenantId: input.tenantId,
       applicationId: input.applicationId,
       companyId: listCompanyId
     });
+    if (!application && listCompanyId) {
+      const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+      const canSeeAllCompanies = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+      if (canSeeAllCompanies) {
+        application = await this.repository.getTenantApplicationById({
+          tenantId: input.tenantId,
+          applicationId: input.applicationId,
+          companyId: null
+        });
+      }
+    }
     if (!application) throw new Error("APPLICATION_NOT_FOUND");
     return application;
   }
@@ -613,13 +640,24 @@ export class RecruitmentService {
       "preposto"
     ]);
 
-    const listCompanyId = await this.resolveJobsListCompanyId(input);
+    let listCompanyId = await this.resolveJobsListCompanyId(input);
 
-    const application = await this.repository.getTenantApplicationById({
+    let application = await this.repository.getTenantApplicationById({
       tenantId: input.tenantId,
       applicationId: input.applicationId,
       companyId: listCompanyId
     });
+    if (!application && listCompanyId) {
+      const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+      const canSeeAllCompanies = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+      if (canSeeAllCompanies) {
+        application = await this.repository.getTenantApplicationById({
+          tenantId: input.tenantId,
+          applicationId: input.applicationId,
+          companyId: null
+        });
+      }
+    }
     if (!application) throw new Error("APPLICATION_NOT_FOUND");
     if (!application.candidateProfile?.resumeFilePath || !application.candidateProfile.resumeFileName) {
       throw new Error("RESUME_NOT_FOUND");
@@ -663,19 +701,23 @@ export class RecruitmentService {
     `;
 
     try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: env.EMAIL_FROM,
-          to: [input.toEmail],
-          subject,
-          html
-        })
-      });
+      const response = await withTimeout(
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            from: env.EMAIL_FROM,
+            to: [input.toEmail],
+            subject,
+            html
+          })
+        }),
+        6000,
+        () => new Error("RESEND_TIMEOUT")
+      );
 
       return response.ok;
     } catch {

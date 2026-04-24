@@ -44,6 +44,7 @@ export class TenantUsersService {
     search?: string;
     page: number;
     pageSize: number;
+    includePurgedProfiles?: boolean;
   }): Promise<PaginatedResult<TenantUser>> {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
@@ -55,7 +56,8 @@ export class TenantUsersService {
     const listCompanyId = await this.resolveTenantUsersListCompanyId(input);
     return this.repository.listUsers({
       ...input,
-      companyId: listCompanyId
+      companyId: listCompanyId,
+      includePurgedProfiles: input.includePurgedProfiles === true
     });
   }
 
@@ -142,6 +144,30 @@ export class TenantUsersService {
     );
     if (!target) {
       throw new Error("TARGET_USER_NOT_IN_TENANT");
+    }
+
+    const isEmployee = target.roles.includes("employee");
+    if (isEmployee) {
+      await this.repository.purgeCollaboratorData({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        companyId: input.companyId ?? target.companyId,
+        reason: input.reason.trim()
+      });
+      await this.repository.insertAuditLog({
+        tenantId: input.tenantId,
+        companyId: input.companyId ?? target.companyId,
+        actorUserId: input.actorUserId,
+        action: "tenant.user.collaborator_purged",
+        resourceType: "tenant_user",
+        resourceId: input.targetUserId,
+        result: "success",
+        metadata: {
+          reason: input.reason.trim(),
+          previousStatus: target.status
+        }
+      });
+      return { ok: true };
     }
 
     const hasLinked = await this.repository.hasLinkedRecords(input.tenantId, input.targetUserId);

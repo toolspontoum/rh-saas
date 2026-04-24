@@ -49,23 +49,44 @@ export default function CandidateJobDetailPage() {
 
   useEffect(() => {
     if (!jobId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
     getPublicJobById(jobId)
-      .then((data) => setJob(data))
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
-
-    getMyApplicationByJob(jobId)
       .then((data) => {
+        if (!cancelled) setJob(data);
+        return getMyApplicationByJob(jobId);
+      })
+      .then((data) => {
+        if (cancelled) return;
         setApplied(data.applied);
         setApplicationStatus(data.status ?? null);
+        if (data.coverLetter) {
+          setCoverLetter(data.coverLetter);
+        }
+        if (data.screeningAnswers?.length) {
+          const next: typeof questionAnswers = {};
+          for (const ans of data.screeningAnswers) {
+            next[ans.questionId] = {
+              answerBoolean: ans.answerBoolean ?? null,
+              answerText: ans.answerText ?? "",
+              answerFile: ans.answerFile ?? ""
+            };
+          }
+          setQuestionAnswers(next);
+        }
       })
-      .catch(() => {
-        setApplied(false);
-        setApplicationStatus(null);
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
 
   async function confirmApply() {
@@ -139,7 +160,7 @@ export default function CandidateJobDetailPage() {
     try {
       await withdrawMyApplication(job.id);
       setApplied(false);
-      setApplicationStatus(null);
+      setApplicationStatus("withdrawn");
       setConfirmWithdrawOpen(false);
     } catch (err) {
       setError((err as Error).message);
@@ -164,6 +185,13 @@ export default function CandidateJobDetailPage() {
       </main>
     );
   }
+
+  const isWithdrawn = applicationStatus === "withdrawn";
+  const fieldReadOnly = applicationStatus === "approved";
+  const showWithdraw =
+    applicationStatus != null &&
+    !isWithdrawn &&
+    ["submitted", "in_review", "approved", "rejected"].includes(applicationStatus);
 
   return (
     <main className="container wide stack apply-flow-main" style={{ margin: 0 }}>
@@ -199,6 +227,7 @@ export default function CandidateJobDetailPage() {
                 <input
                   type="file"
                   accept="application/pdf"
+                  disabled={fieldReadOnly || applied}
                   onChange={(event) =>
                     setDocFiles((prev) => ({
                       ...prev,
@@ -234,6 +263,7 @@ export default function CandidateJobDetailPage() {
                           type="radio"
                           name={`question-${question.id}`}
                           checked={answer.answerBoolean === true}
+                          disabled={fieldReadOnly}
                           onChange={() =>
                             setQuestionAnswers((prev) => ({
                               ...prev,
@@ -248,6 +278,7 @@ export default function CandidateJobDetailPage() {
                           type="radio"
                           name={`question-${question.id}`}
                           checked={answer.answerBoolean === false}
+                          disabled={fieldReadOnly}
                           onChange={() =>
                             setQuestionAnswers((prev) => ({
                               ...prev,
@@ -263,6 +294,8 @@ export default function CandidateJobDetailPage() {
                     <textarea
                       value={answer.answerText}
                       placeholder="Digite sua resposta"
+                      readOnly={fieldReadOnly}
+                      disabled={fieldReadOnly}
                       onChange={(event) =>
                         setQuestionAnswers((prev) => ({
                           ...prev,
@@ -283,10 +316,18 @@ export default function CandidateJobDetailPage() {
             <RichTextEditor
               value={coverLetter}
               onChange={setCoverLetter}
+              readOnly={fieldReadOnly}
               placeholder="Escreva sua apresentação para esta vaga"
             />
           </div>
         </label>
+
+        {isWithdrawn ? (
+          <p className="muted">
+            A sua candidatura consta como cancelada. Use «Refazer candidatura» para enviar novamente e voltar ao fluxo de
+            análise.
+          </p>
+        ) : null}
 
         <div className="row job-apply-actions">
           {applied ? (
@@ -295,16 +336,20 @@ export default function CandidateJobDetailPage() {
                 Candidatura enviada
                 {applicationStatus ? ` (${statusLabel(applicationStatus)})` : ""}
               </button>
-              <button
-                className="secondary"
-                onClick={() => setConfirmWithdrawOpen(true)}
-                disabled={withdrawing}
-              >
-                Retirar candidatura
-              </button>
+              {showWithdraw ? (
+                <button
+                  className="secondary"
+                  onClick={() => setConfirmWithdrawOpen(true)}
+                  disabled={withdrawing}
+                >
+                  Retirar candidatura
+                </button>
+              ) : null}
             </>
           ) : (
-            <button onClick={() => setConfirmOpen(true)} disabled={submitting}>Candidatar-se</button>
+            <button onClick={() => setConfirmOpen(true)} disabled={submitting}>
+              {isWithdrawn ? "Refazer candidatura" : "Candidatar-se"}
+            </button>
           )}
         </div>
       </section>

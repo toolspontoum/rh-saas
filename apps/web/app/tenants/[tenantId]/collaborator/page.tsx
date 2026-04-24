@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { Eye, Pencil, Trash2 } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
+import { ConfirmModal } from "../../../../components/confirm-modal";
 import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
 
@@ -17,6 +18,8 @@ type TenantUser = {
   phone: string | null;
   status: "active" | "inactive" | "offboarded";
   roles: string[];
+  /** Quando preenchido, o perfil foi anonimizado (visível sobretudo a superadmin). */
+  dataPurgedAt?: string | null;
 };
 
 type EmployeeProfile = {
@@ -26,6 +29,9 @@ type EmployeeProfile = {
 };
 
 type Paginated<T> = { items: T[] };
+
+const COLLABORATOR_DELETE_WARNING =
+  "Excluir um colaborador é uma ação que não pode ser desfeita, ao prosseguir com a exclusão você irá apagar definitivamente todos os dados e registros desse colaborador.";
 
 export default function CollaboratorListPage() {
   const params = useParams<{ tenantId: string }>();
@@ -39,6 +45,8 @@ export default function CollaboratorListPage() {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   async function loadData() {
     setLoading(true);
@@ -109,23 +117,24 @@ export default function CollaboratorListPage() {
     });
   }, [items, profiles, statusFilter, contractFilter, departmentFilter, search]);
 
-  async function removeCollaborator(userId: string) {
-    const reason = window.prompt("Informe o motivo da exclusão (mínimo 5 caracteres):", "");
-    if (!reason) return;
-    if (reason.trim().length < 5) {
-      setError("Motivo inválido para exclusão.");
-      return;
-    }
-
+  async function confirmDeleteCollaborator() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
     setError(null);
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}`, {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${deleteTarget.userId}`, {
         method: "DELETE",
-        body: JSON.stringify({ reason: reason.trim() })
+        body: JSON.stringify({
+          reason:
+            "Exclusão definitiva do colaborador confirmada no painel; dados anonimizados ou removidos conforme política da plataforma."
+        })
       });
+      setDeleteTarget(null);
       await loadData();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -200,12 +209,31 @@ export default function CollaboratorListPage() {
                     <td>{item.phone ?? "-"}</td>
                     <td>{profile?.department ?? "-"}</td>
                     <td>{profile?.contractType ?? "-"}</td>
-                    <td>{item.status === "active" ? "Ativo" : item.status === "inactive" ? "Inativo" : "Desligado"}</td>
+                    <td>
+                      {item.dataPurgedAt ? (
+                        <span className="badge">Excluído (anonimizado)</span>
+                      ) : item.status === "active" ? (
+                        "Ativo"
+                      ) : item.status === "inactive" ? (
+                        "Inativo"
+                      ) : (
+                        "Desligado"
+                      )}
+                    </td>
                     <td>
                       <div className="row">
                         <Link href={`/tenants/${tenantId}/collaborator/${item.userId}`} className="icon-btn" title="Visualizar" aria-label="Visualizar"><Eye size={16} /></Link>
                         <Link href={`/tenants/${tenantId}/collaborator/${item.userId}?mode=edit`} className="icon-btn" title="Editar" aria-label="Editar"><Pencil size={16} /></Link>
-                        <button className="icon-btn icon-danger" title="Excluir" aria-label="Excluir" onClick={() => removeCollaborator(item.userId)}><Trash2 size={16} /></button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-danger"
+                          title="Excluir"
+                          aria-label="Excluir"
+                          disabled={Boolean(item.dataPurgedAt)}
+                          onClick={() => setDeleteTarget(item)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -215,6 +243,27 @@ export default function CollaboratorListPage() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        title="Excluir colaborador"
+        message={
+          deleteTarget
+            ? `Confirma a exclusão definitiva de ${deleteTarget.fullName ?? deleteTarget.email ?? "este colaborador"}?`
+            : ""
+        }
+        confirmLabel={deleteBusy ? "A excluir..." : "Excluir definitivamente"}
+        cancelLabel="Cancelar"
+        danger
+        busy={deleteBusy}
+        busyLabel="A excluir..."
+        onCancel={() => (deleteBusy ? null : setDeleteTarget(null))}
+        onConfirm={() => void confirmDeleteCollaborator()}
+      >
+        <p className="muted" style={{ marginTop: 8, lineHeight: 1.45 }}>
+          {COLLABORATOR_DELETE_WARNING}
+        </p>
+      </ConfirmModal>
     </main>
   );
 }

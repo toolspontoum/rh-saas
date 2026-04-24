@@ -424,7 +424,8 @@ export class RecruitmentRepository {
         .select(
           `
         *,
-        company:tenant_companies!jobs_company_id_fkey(id,name)
+        company:tenant_companies!jobs_company_id_fkey(id,name),
+        job_applications(count)
       `
         )
         .eq("tenant_id", tenantId)

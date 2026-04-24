@@ -16,6 +16,8 @@ export type TenantUser = {
   offboardedAt: string | null;
   roles: AppRole[];
   isAccessEnabled: boolean;
+  /** Preenchido quando o colaborador foi anonimizado (visível sobretudo a superadmin). */
+  dataPurgedAt?: string | null;
 };
 
 export type PaginatedResult<T> = {

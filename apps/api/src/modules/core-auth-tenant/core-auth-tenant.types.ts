@@ -30,5 +30,7 @@ export type TenantContext = {
   aiProvider: "openai" | "gemini" | null;
   /** Provedor efetivo após resolver tenant + ambiente. */
   aiEffectiveProvider: "openai" | "gemini" | null;
+  /** Superadmin da plataforma (mensagens técnicas de diagnóstico, etc.). */
+  isPlatformSuperadmin: boolean;
 };
 

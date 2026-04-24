@@ -10,7 +10,7 @@ import { apiFetch } from "../../../../../../../lib/api";
 
 type Application = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "withdrawn" | "archived";
   coverLetter: string | null;
   candidate: {
     fullName: string;
@@ -48,6 +48,9 @@ function aiAnalysisHint(it: Application): string | undefined {
 }
 
 /** Motivo persistido em `ai_match_report.reason` quando status = skipped (ver resume-analysis.runner). */
+const GENERIC_AI_ERROR =
+  "Ocorreu um erro técnico na análise automática. Informe os administradores da plataforma para que possam verificar a configuração do serviço.";
+
 function skippedReasonVisible(it: Application): { code: string; detail: string } | null {
   if (it.aiAnalysisStatus !== "skipped") return null;
   const r = it.aiMatchReport?.reason;
@@ -80,6 +83,7 @@ export default function RecruitmentApplicationsPage() {
   const [draft, setDraft] = useState<Record<string, Application["status"]>>({});
   const [error, setError] = useState<string | null>(null);
   const [canSeeAiMatch, setCanSeeAiMatch] = useState(false);
+  const [isPlatformSuperadmin, setIsPlatformSuperadmin] = useState(false);
   const [reanalyzeBusy, setReanalyzeBusy] = useState<string | null>(null);
 
   async function load() {
@@ -100,11 +104,15 @@ export default function RecruitmentApplicationsPage() {
   }, [tenantId, jobId]);
 
   useEffect(() => {
-    apiFetch<{ roles: string[] }>(`/v1/tenants/${tenantId}/context`)
-      .then((ctx) =>
-        setCanSeeAiMatch(ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r)))
-      )
-      .catch(() => setCanSeeAiMatch(false));
+    apiFetch<{ roles: string[]; isPlatformSuperadmin?: boolean }>(`/v1/tenants/${tenantId}/context`)
+      .then((ctx) => {
+        setCanSeeAiMatch(ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r)));
+        setIsPlatformSuperadmin(Boolean(ctx.isPlatformSuperadmin));
+      })
+      .catch(() => {
+        setCanSeeAiMatch(false);
+        setIsPlatformSuperadmin(false);
+      });
   }, [tenantId]);
 
   async function reanalyzeAi(applicationId: string) {
@@ -173,6 +181,7 @@ export default function RecruitmentApplicationsPage() {
             <tbody>
               {items.map((it) => {
                 const skipInfo = skippedReasonVisible(it);
+                const showTechnicalAiDetail = isPlatformSuperadmin;
                 return (
                 <tr key={it.id}>
                   <td>{it.candidate.fullName}</td>
@@ -186,15 +195,25 @@ export default function RecruitmentApplicationsPage() {
                   {canSeeAiMatch ? (
                     <td style={{ verticalAlign: "top" }}>
                       <div className="stack" style={{ gap: 8, maxWidth: 280 }}>
-                        <span title={aiAnalysisHint(it)} style={{ cursor: "help" }}>
+                        <span title={showTechnicalAiDetail ? aiAnalysisHint(it) : undefined} style={{ cursor: showTechnicalAiDetail ? "help" : "default" }}>
                           {it.aiAnalysisStatus
                             ? (AI_ANALYSIS_LABEL[it.aiAnalysisStatus] ?? it.aiAnalysisStatus)
                             : "—"}
                         </span>
                         {skipInfo ? (
                           <div className="muted small" style={{ lineHeight: 1.35 }}>
-                            <strong style={{ fontWeight: 600 }}>{skipInfo.code}</strong>
-                            <div>{skipInfo.detail}</div>
+                            {showTechnicalAiDetail ? (
+                              <>
+                                <strong style={{ fontWeight: 600 }}>{skipInfo.code}</strong>
+                                <div>{skipInfo.detail}</div>
+                              </>
+                            ) : (
+                              <div>{GENERIC_AI_ERROR}</div>
+                            )}
+                          </div>
+                        ) : it.aiAnalysisStatus === "failed" && it.aiAnalysisError ? (
+                          <div className="muted small" style={{ lineHeight: 1.35 }}>
+                            {showTechnicalAiDetail ? it.aiAnalysisError : GENERIC_AI_ERROR}
                           </div>
                         ) : null}
                         <button
@@ -220,6 +239,8 @@ export default function RecruitmentApplicationsPage() {
                       <option value="in_review">in_review</option>
                       <option value="approved">approved</option>
                       <option value="rejected">rejected</option>
+                      <option value="withdrawn">withdrawn</option>
+                      <option value="archived">archived</option>
                     </select>
                   </td>
                   <td><button onClick={() => saveStatus(it.id)}>Salvar</button></td>

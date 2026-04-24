@@ -81,7 +81,7 @@ export type JobQuestionAnswer = {
 
 export type MyApplication = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected" | "archived";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   coverLetter: string | null;
   createdAt: string;
   job: { id: string; title: string };
@@ -261,9 +261,13 @@ export async function quickApplyToJob(input: {
 }
 
 export async function getMyApplicationByJob(jobId: string) {
-  return apiFetch<{ applied: boolean; applicationId: string | null; status: MyApplication["status"] | null }>(
-    `/v1/me/jobs/${jobId}/application`
-  );
+  return apiFetch<{
+    applied: boolean;
+    applicationId: string | null;
+    status: MyApplication["status"] | null;
+    coverLetter: string | null;
+    screeningAnswers: JobQuestionAnswer[];
+  }>(`/v1/me/jobs/${jobId}/application`);
 }
 
 export async function withdrawMyApplication(jobId: string) {
@@ -302,6 +306,8 @@ export function statusLabel(status: MyApplication["status"]) {
       return "Rejeitada";
     case "archived":
       return "Arquivada";
+    case "withdrawn":
+      return "Candidatura cancelada";
     default:
       return status;
   }

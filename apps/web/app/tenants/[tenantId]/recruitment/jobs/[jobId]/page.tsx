@@ -33,11 +33,13 @@ type Job = {
   screeningQuestions: JobQuestion[];
   status: "draft" | "published" | "closed";
   createdAt: string;
+  /** Contagem total de candidaturas (inclui todos os estados), quando enviada pela API. */
+  applicationsCount?: number;
 };
 
 type Application = {
   id: string;
-  status: "submitted" | "in_review" | "approved" | "rejected";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "withdrawn" | "archived";
   coverLetter: string | null;
   createdAt: string;
   candidate: {
@@ -64,17 +66,20 @@ export default function RecruitmentJobDetailPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [applicationsError, setApplicationsError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      apiFetch<Job>(`/v1/tenants/${tenantId}/jobs/${jobId}`),
-      apiFetch<Paginated<Application>>(`/v1/tenants/${tenantId}/jobs/${jobId}/applications?page=1&pageSize=100`)
-    ])
-      .then(([jobData, appData]) => {
-        setJob(jobData);
-        setApplications(appData.items);
-      })
+    setError(null);
+    setApplicationsError(null);
+    apiFetch<Job>(`/v1/tenants/${tenantId}/jobs/${jobId}`)
+      .then((jobData) => setJob(jobData))
       .catch((err: Error) => setError(err.message));
+    apiFetch<Paginated<Application>>(`/v1/tenants/${tenantId}/jobs/${jobId}/applications?page=1&pageSize=100`)
+      .then((appData) => setApplications(appData.items ?? []))
+      .catch((err: Error) => {
+        setApplications([]);
+        setApplicationsError(err.message);
+      });
   }, [tenantId, jobId]);
 
   const statusCount = useMemo(() => {
@@ -83,6 +88,10 @@ export default function RecruitmentJobDetailPage() {
       return acc;
     }, {});
   }, [applications]);
+
+  const totalFromList = applications.length;
+  const totalFromJob = typeof job?.applicationsCount === "number" ? job.applicationsCount : null;
+  const displayedTotal = totalFromList > 0 ? totalFromList : totalFromJob ?? totalFromList;
 
   const safeDescription = job ? DOMPurify.sanitize(job.description ?? "") : "";
 
@@ -106,6 +115,7 @@ export default function RecruitmentJobDetailPage() {
       </div>
 
       {error ? <p className="error">{error}</p> : null}
+      {applicationsError ? <p className="error">Inscritos: {applicationsError}</p> : null}
       {job ? (
         <div className="card stack">
           <h3>{job.title}</h3>
@@ -148,11 +158,12 @@ export default function RecruitmentJobDetailPage() {
       ) : null}
 
       <div className="metrics-grid">
-        <div className="card"><h3>{applications.length}</h3><p>Total inscritos</p></div>
+        <div className="card"><h3>{displayedTotal}</h3><p>Total inscritos</p></div>
         <div className="card"><h3>{statusCount.submitted ?? 0}</h3><p>Submetidos</p></div>
         <div className="card"><h3>{statusCount.in_review ?? 0}</h3><p>Em análise</p></div>
         <div className="card"><h3>{statusCount.approved ?? 0}</h3><p>Aprovados</p></div>
         <div className="card"><h3>{statusCount.rejected ?? 0}</h3><p>Rejeitados</p></div>
+        <div className="card"><h3>{statusCount.withdrawn ?? 0}</h3><p>Candidatura cancelada</p></div>
       </div>
 
       <div className="card table-wrap">
@@ -169,7 +180,21 @@ export default function RecruitmentJobDetailPage() {
                 <tr key={item.id}>
                   <td>{item.candidate.fullName}</td>
                   <td>{item.candidate.email}</td>
-                  <td>{item.status}</td>
+                  <td>
+                    {item.status === "withdrawn"
+                      ? "Candidatura cancelada"
+                      : item.status === "submitted"
+                        ? "Submetido"
+                        : item.status === "in_review"
+                          ? "Em análise"
+                          : item.status === "approved"
+                            ? "Aprovado"
+                            : item.status === "rejected"
+                              ? "Rejeitado"
+                              : item.status === "archived"
+                                ? "Arquivado"
+                                : item.status}
+                  </td>
                   <td>{new Date(item.createdAt).toLocaleString("pt-BR")}</td>
                 </tr>
               ))}

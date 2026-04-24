@@ -512,6 +512,37 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const out = await runTenantDocumentOpenGet(headerAuthorization(req), tenantSegment, b, xCompany6);
         return res.status(out.status).json(out.body);
       }
+      if (a === "recruitment" && b === "applications" && c) {
+        const { runTenantRecruitmentApplicationDetailsGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantRecruitmentApplicationDetailsGet(
+          headerAuthorization(req),
+          tenantSegment,
+          c,
+          xCompany6
+        );
+        return res.status(out.status).json(out.body);
+      }
+    }
+
+    if (req.method === "GET" && segments.length === 7 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantSegment7 = segments[2] ?? "";
+      const a7 = segments[3] ?? "";
+      const b7 = segments[4] ?? "";
+      const c7 = segments[5] ?? "";
+      const d7 = segments[6] ?? "";
+      const companyRaw7 = req.headers["x-tenant-company-id"];
+      const xCompany7 =
+        typeof companyRaw7 === "string" ? companyRaw7 : Array.isArray(companyRaw7) ? companyRaw7[0] : undefined;
+      if (a7 === "recruitment" && b7 === "applications" && d7 === "resume-download" && c7) {
+        const { runTenantRecruitmentApplicationResumeDownloadGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantRecruitmentApplicationResumeDownloadGet(
+          headerAuthorization(req),
+          tenantSegment7,
+          c7,
+          xCompany7
+        );
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (
@@ -788,9 +819,13 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
             ? companyRawJobs[0]
             : undefined;
       const authJobs = headerAuthorization(req);
-      const { runTenantJobCreatePost, runTenantJobPatch, runTenantJobDelete } = await import(
-        "@vv/api/run-tenant-recruitment-writes"
-      );
+      const {
+        runTenantJobCreatePost,
+        runTenantJobPatch,
+        runTenantJobDelete,
+        runTenantJobApplicationStatusPatch,
+        runTenantJobApplicationAiReanalyzePost
+      } = await import("@vv/api/run-tenant-recruitment-writes");
 
       if (
         req.method === "GET" &&
@@ -814,6 +849,50 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           xCompanyJobs
         );
         return res.status(outApps.status).json(outApps.body);
+      }
+
+      if (
+        req.method === "PATCH" &&
+        segments.length === 8 &&
+        segments[5] === "applications" &&
+        segments[7] === "status" &&
+        segments[4] &&
+        segments[6]
+      ) {
+        const bodyAppStatus = await readJsonBody(req);
+        const outAppStatus = await runTenantJobApplicationStatusPatch(
+          authJobs,
+          tenantJobs,
+          segments[4],
+          segments[6],
+          bodyAppStatus,
+          xCompanyJobs
+        );
+        return res.status(outAppStatus.status).json(outAppStatus.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 8 &&
+        segments[5] === "applications" &&
+        segments[7] === "ai-reanalyze" &&
+        segments[4] &&
+        segments[6]
+      ) {
+        const outAi = await runTenantJobApplicationAiReanalyzePost(
+          authJobs,
+          tenantJobs,
+          segments[4],
+          segments[6],
+          xCompanyJobs
+        );
+        return res.status(outAi.status).json(outAi.body);
+      }
+
+      if (req.method === "GET" && segments.length === 5 && jobIdSeg) {
+        const { runTenantJobByIdGet } = await import("@vv/api/run-tenant-data-gets");
+        const outJob = await runTenantJobByIdGet(authJobs, tenantJobs, jobIdSeg, xCompanyJobs);
+        return res.status(outJob.status).json(outJob.body);
       }
 
       if (req.method === "POST" && segments.length === 4) {
@@ -931,6 +1010,106 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       const bodyPr = await readJsonBody(req);
       const outPr = await runTenantCompanyPrepostoPut(authPr, tenantPr, companyPr, bodyPr);
       return res.status(outPr.status).json(outPr.body);
+    }
+
+    /** Documentos, modelos de jornada e estado de utilizadores — sem cold start do Express (504). */
+    if (segments.length >= 4 && segments[0] === "v1" && segments[1] === "tenants") {
+      const tenantUx = segments[2] ?? "";
+      const companyRawUx = req.headers["x-tenant-company-id"];
+      const xCompanyUx =
+        typeof companyRawUx === "string" ? companyRawUx : Array.isArray(companyRawUx) ? companyRawUx[0] : undefined;
+      const authUx = headerAuthorization(req);
+
+      if (req.method === "POST" && segments.length === 4 && segments[3] === "document-requests") {
+        const bodyDr = await readJsonBody(req);
+        const { runTenantDocumentRequestsPost } = await import("@vv/api/run-tenant-writes");
+        const outDr = await runTenantDocumentRequestsPost(authUx, tenantUx, bodyDr, xCompanyUx);
+        return res.status(outDr.status).json(outDr.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[3] === "documents" &&
+        segments[4] === "upload-intent"
+      ) {
+        const bodyDu = await readJsonBody(req);
+        const { runTenantDocumentsUploadIntentPost } = await import("@vv/api/run-tenant-writes");
+        const outDu = await runTenantDocumentsUploadIntentPost(authUx, tenantUx, bodyDu, xCompanyUx);
+        return res.status(outDu.status).json(outDu.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[3] === "document-requests" &&
+        segments[5] === "upload-intent" &&
+        segments[4]
+      ) {
+        const bodyUi = await readJsonBody(req);
+        const { runTenantDocumentRequestUploadIntentPost } = await import("@vv/api/run-tenant-writes");
+        const outUi = await runTenantDocumentRequestUploadIntentPost(
+          authUx,
+          tenantUx,
+          segments[4],
+          bodyUi,
+          xCompanyUx
+        );
+        return res.status(outUi.status).json(outUi.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[3] === "document-requests" &&
+        segments[5] === "confirm-upload" &&
+        segments[4]
+      ) {
+        const bodyCu = await readJsonBody(req);
+        const { runTenantDocumentRequestConfirmUploadPost } = await import("@vv/api/run-tenant-writes");
+        const outCu = await runTenantDocumentRequestConfirmUploadPost(
+          authUx,
+          tenantUx,
+          segments[4],
+          bodyCu,
+          xCompanyUx
+        );
+        return res.status(outCu.status).json(outCu.body);
+      }
+
+      if (req.method === "POST" && segments.length === 4 && segments[3] === "shift-templates") {
+        const bodySt = await readJsonBody(req);
+        const { runTenantShiftTemplatesPost } = await import("@vv/api/run-tenant-writes");
+        const outSt = await runTenantShiftTemplatesPost(authUx, tenantUx, bodySt, xCompanyUx);
+        return res.status(outSt.status).json(outSt.body);
+      }
+
+      if (req.method === "PATCH" && segments.length === 5 && segments[3] === "shift-templates" && segments[4]) {
+        const bodyPatch = await readJsonBody(req);
+        const { runTenantShiftTemplatePatch } = await import("@vv/api/run-tenant-writes");
+        const outSh = await runTenantShiftTemplatePatch(authUx, tenantUx, segments[4], bodyPatch, xCompanyUx);
+        return res.status(outSh.status).json(outSh.body);
+      }
+
+      if (
+        req.method === "PATCH" &&
+        segments.length === 6 &&
+        segments[3] === "users" &&
+        segments[5] === "status" &&
+        segments[4]
+      ) {
+        const bodyUs = await readJsonBody(req);
+        const { runTenantUserStatusPatch } = await import("@vv/api/run-tenant-writes");
+        const outUs = await runTenantUserStatusPatch(authUx, tenantUx, segments[4], bodyUs, xCompanyUx);
+        return res.status(outUs.status).json(outUs.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[3] === "users" && segments[4]) {
+        const bodyDel = await readJsonBody(req);
+        const { runTenantUserDelete } = await import("@vv/api/run-tenant-writes");
+        const outDelU = await runTenantUserDelete(authUx, tenantUx, segments[4], bodyDel, xCompanyUx);
+        return res.status(outDelU.status).json(outDelU.body);
+      }
     }
 
     const h = await getHandler();

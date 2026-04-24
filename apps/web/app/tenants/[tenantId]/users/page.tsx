@@ -233,6 +233,7 @@ export default function TenantUsersPage() {
         <div className="row">
           {statusTabs.map((tab) => (
             <button
+              type="button"
               key={tab.value}
               className={tab.value === statusTab ? "" : "secondary"}
               onClick={() => setStatusTab(tab.value)}
@@ -280,6 +281,7 @@ export default function TenantUsersPage() {
                     <td>
                       <div className="row">
                         <button
+                          type="button"
                           className="secondary"
                           disabled={busyUserId === item.userId}
                           onClick={() => setPending({ type: "status", userId: item.userId, status: "active" })}
@@ -287,6 +289,7 @@ export default function TenantUsersPage() {
                           Ativar
                         </button>
                         <button
+                          type="button"
                           className="secondary"
                           disabled={busyUserId === item.userId}
                           onClick={() => setPending({ type: "status", userId: item.userId, status: "inactive" })}
@@ -294,12 +297,14 @@ export default function TenantUsersPage() {
                           Inativar
                         </button>
                         <button
+                          type="button"
                           disabled={busyUserId === item.userId}
                           onClick={() => setPending({ type: "status", userId: item.userId, status: "offboarded" })}
                         >
                           Desligar
                         </button>
                         <button
+                          type="button"
                           className="danger"
                           disabled={busyUserId === item.userId}
                           onClick={() => setPending({ type: "delete", userId: item.userId })}
@@ -328,11 +333,14 @@ export default function TenantUsersPage() {
         }
         confirmLabel={pending?.type === "delete" ? "Excluir" : "Confirmar"}
         danger={pending?.type === "delete"}
+        busy={busyUserId !== null}
+        busyLabel="A processar..."
         onCancel={() => {
+          if (busyUserId) return;
           setPending(null);
           setReason("");
         }}
-        onConfirm={runPendingAction}
+        onConfirm={() => void runPendingAction()}
       >
         {pending?.type === "delete" || pending?.status === "offboarded" ? (
           <textarea

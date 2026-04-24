@@ -1,4 +1,5 @@
 import { toHttpError } from "./http/error-handler.js";
+import { isPlatformAdminUser } from "./http/auth.js";
 import { tenantUsersHandlers } from "./modules/tenant-users/index.js";
 import { getBearerSession } from "./session-from-bearer.js";
 import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
@@ -31,6 +32,7 @@ export async function runTenantUsersListGet(
       : undefined;
 
   try {
+    const includePurged = await isPlatformAdminUser(s.userId, s.email);
     const result = await tenantUsersHandlers.listUsers({
       tenantId,
       userId: s.userId,
@@ -38,7 +40,8 @@ export async function runTenantUsersListGet(
       status: statusFilter,
       search: query.search,
       page: query.page,
-      pageSize: query.pageSize
+      pageSize: query.pageSize,
+      includePurgedProfiles: includePurged
     });
     return { status: 200, body: result };
   } catch (error) {

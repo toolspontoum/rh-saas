@@ -36,7 +36,7 @@ type JobQuestionAnswer = {
 type ApplicationDetails = {
   id: string;
   jobId: string;
-  status: "submitted" | "in_review" | "approved" | "rejected" | "archived";
+  status: "submitted" | "in_review" | "approved" | "rejected" | "archived" | "withdrawn";
   coverLetter: string | null;
   screeningAnswers: JobQuestionAnswer[];
   createdAt: string;
@@ -60,7 +60,7 @@ type ApplicationDetails = {
     state: string | null;
     salary: number | null;
     expiresAt: string | null;
-    skills: string[];
+    skills?: string[] | null;
     screeningQuestions: JobQuestion[];
     status: "draft" | "published" | "closed";
   };
@@ -98,6 +98,7 @@ function applicationStatusLabel(status: ApplicationDetails["status"]): string {
   if (status === "in_review") return "Em analise";
   if (status === "approved") return "Aprovado";
   if (status === "rejected") return "Rejeitado";
+  if (status === "withdrawn") return "Candidatura cancelada";
   return "Arquivado";
 }
 
@@ -145,6 +146,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
   const [item, setItem] = useState<ApplicationDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingDecision, setSavingDecision] = useState(false);
   const [openApprove, setOpenApprove] = useState(false);
   const [openReject, setOpenReject] = useState(false);
 
@@ -158,14 +161,23 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
   );
 
   async function load() {
-    const data = await apiFetch<ApplicationDetails>(
-      `/v1/tenants/${tenantId}/recruitment/applications/${applicationId}`
-    );
-    setItem(data);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<ApplicationDetails>(
+        `/v1/tenants/${tenantId}/recruitment/applications/${applicationId}`
+      );
+      setItem(data);
+    } catch (err) {
+      setItem(null);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    load().catch((err: Error) => setError(err.message));
+    void load();
   }, [tenantId, applicationId]);
 
   async function approve() {
@@ -173,6 +185,7 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
     setError(null);
     setOkMsg(null);
 
+    setSavingDecision(true);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/jobs/${item.jobId}/applications/${item.id}/status`, {
         method: "PATCH",
@@ -183,6 +196,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSavingDecision(false);
     }
   }
 
@@ -191,6 +206,7 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
     setError(null);
     setOkMsg(null);
 
+    setSavingDecision(true);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/jobs/${item.jobId}/applications/${item.id}/status`, {
         method: "PATCH",
@@ -201,6 +217,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSavingDecision(false);
     }
   }
 
@@ -230,19 +248,36 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
       <div className="section-header">
         <h1>Detalhes da candidatura</h1>
         <div className="row">
-          <button className="secondary" onClick={() => router.push(`/tenants/${tenantId}/recruitment/candidates`)}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => router.push(`/tenants/${tenantId}/recruitment/candidates`)}
+          >
             Voltar
           </button>
           <button
+            type="button"
             onClick={() => setOpenApprove(true)}
-            disabled={!item || item.status === "approved" || item.status === "archived" || item.status === "rejected"}
+            disabled={
+              !item ||
+              item.status === "approved" ||
+              item.status === "archived" ||
+              item.status === "rejected" ||
+              item.status === "withdrawn"
+            }
           >
             Aprovar candidato
           </button>
           <button
+            type="button"
             className="danger"
             onClick={() => setOpenReject(true)}
-            disabled={!item || item.status === "rejected" || item.status === "archived"}
+            disabled={
+              !item ||
+              item.status === "rejected" ||
+              item.status === "archived" ||
+              item.status === "withdrawn"
+            }
           >
             Reprovar candidato
           </button>
@@ -251,6 +286,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
 
       {error ? <p className="error">{error}</p> : null}
       {okMsg ? <p>{okMsg}</p> : null}
+
+      {loading ? <p className="muted">Carregando detalhes da candidatura...</p> : null}
 
       {item ? (
         <>
@@ -267,18 +304,25 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
               <span className="badge">Salario: {item.job.salary == null ? "Nao informado" : `R$ ${item.job.salary.toFixed(2)}`}</span>
               <span className="badge">Validade: {item.job.expiresAt ?? "Sem validade"}</span>
               <span className="badge">Status candidatura: {applicationStatusLabel(item.status)}</span>
-              {item.job.skills.map((skill) => (
+              {(item.job.skills ?? []).map((skill) => (
                 <span className="badge" key={skill}>Habilidade: {skill.replace(/-/g, " ")}</span>
               ))}
             </div>
           </section>
 
+          {item.coverLetter ? (
+            <section className="card stack">
+              <h3>Carta de apresentação</h3>
+              <div className="job-rich-content" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.coverLetter) }} />
+            </section>
+          ) : null}
+
           <section className="card stack">
             <h3>Perguntas da vaga</h3>
-            {item.job.screeningQuestions.length === 0 ? (
+            {(item.job.screeningQuestions ?? []).length === 0 ? (
               <p className="muted">Esta vaga nao possui perguntas especificas.</p>
             ) : (
-              item.job.screeningQuestions.map((q) => (
+              (item.job.screeningQuestions ?? []).map((q) => (
                 <div className="card" key={q.id}>
                   <strong>{q.label}</strong>
                   <div className="tag-list" style={{ marginTop: 8 }}>
@@ -289,7 +333,7 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
                     <span className="badge">Eliminatoria: {q.isEliminatory ? "Sim" : "Nao"}</span>
                   </div>
                   <p style={{ marginTop: 8 }}>
-                    <strong>Resposta:</strong> {renderQuestionAnswer(q, item.screeningAnswers)}
+                    <strong>Resposta:</strong> {renderQuestionAnswer(q, item.screeningAnswers ?? [])}
                   </p>
                   {q.notes ? <p>{q.notes}</p> : null}
                 </div>
@@ -344,8 +388,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
 
             <div className="card stack">
               <h4>Formacao</h4>
-              {item.candidateProfile?.education?.length ? (
-                item.candidateProfile.education.map((ed) => (
+              {(item.candidateProfile?.education ?? []).length ? (
+                (item.candidateProfile?.education ?? []).map((ed) => (
                   <div key={ed.id} className="card stack">
                     <strong>{ed.title}</strong>
                     <span className="muted">{formatTimelinePeriod(ed)}</span>
@@ -359,8 +403,8 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
 
             <div className="card stack">
               <h4>Experiencia profissional</h4>
-              {item.candidateProfile?.experience?.length ? (
-                item.candidateProfile.experience.map((exp) => (
+              {(item.candidateProfile?.experience ?? []).length ? (
+                (item.candidateProfile?.experience ?? []).map((exp) => (
                   <div key={exp.id} className="card stack">
                     <strong>{exp.title}</strong>
                     <span className="muted">{formatTimelinePeriod(exp)}</span>
@@ -385,8 +429,10 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
         }
         confirmLabel="Aprovar"
         cancelLabel="Cancelar"
-        onCancel={() => setOpenApprove(false)}
-        onConfirm={approve}
+        busy={savingDecision}
+        busyLabel="A gravar..."
+        onCancel={() => (savingDecision ? null : setOpenApprove(false))}
+        onConfirm={() => void approve()}
       />
       <ConfirmModal
         open={openReject}
@@ -399,8 +445,10 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
         confirmLabel="Reprovar"
         cancelLabel="Cancelar"
         danger
-        onCancel={() => setOpenReject(false)}
-        onConfirm={reject}
+        busy={savingDecision}
+        busyLabel="A gravar..."
+        onCancel={() => (savingDecision ? null : setOpenReject(false))}
+        onConfirm={() => void reject()}
       />
     </main>
   );
