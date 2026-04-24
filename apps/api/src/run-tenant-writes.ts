@@ -500,3 +500,207 @@ export async function runTenantUserDelete(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+type NoticeAttachmentInput = {
+  fileName: string;
+  filePath: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+function parseNoticeAttachments(raw: unknown): NoticeAttachmentInput[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: NoticeAttachmentInput[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const fileName = typeof o.fileName === "string" ? o.fileName : "";
+    const filePath = typeof o.filePath === "string" ? o.filePath : "";
+    const mimeType = typeof o.mimeType === "string" ? o.mimeType : "";
+    const sizeBytes = typeof o.sizeBytes === "number" ? o.sizeBytes : Number(o.sizeBytes);
+    if (!fileName || !filePath || !mimeType || !Number.isFinite(sizeBytes) || sizeBytes <= 0) continue;
+    out.push({ fileName, filePath, mimeType, sizeBytes });
+  }
+  return out.length ? out : undefined;
+}
+
+/** POST /v1/tenants/:tenantId/notices — criar comunicado (evita 504 na Vercel). */
+export async function runTenantNoticesPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const recipientRaw = body.recipientUserIds;
+    const recipientUserIds = Array.isArray(recipientRaw)
+      ? recipientRaw.filter((id): id is string => typeof id === "string")
+      : [];
+    const targetRaw = body.target;
+    const target =
+      targetRaw === "employee" || targetRaw === "manager" ? targetRaw : ("all" as const);
+    const result = await workforceHandlers.createNotice({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      title: typeof body.title === "string" ? body.title : "",
+      message: typeof body.message === "string" ? body.message : "",
+      target,
+      recipientUserIds,
+      attachments: parseNoticeAttachments(body.attachments) ?? []
+    });
+    return { status: 201, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/notices/upload-intent */
+export async function runTenantNoticesUploadIntentPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.createNoticeAttachmentUploadIntent({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      fileName: typeof body.fileName === "string" ? body.fileName : "",
+      mimeType: typeof body.mimeType === "string" ? body.mimeType : "",
+      sizeBytes: typeof body.sizeBytes === "number" ? body.sizeBytes : Number(body.sizeBytes)
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/notices/:noticeId/read */
+export async function runTenantNoticeReadPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  noticeId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.markNoticeRead({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      noticeId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/notices/:noticeId/archive */
+export async function runTenantNoticeArchivePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  noticeId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.archiveNotice({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      noticeId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/notices/:noticeId/unarchive */
+export async function runTenantNoticeUnarchivePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  noticeId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.unarchiveNotice({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      noticeId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** DELETE /v1/tenants/:tenantId/notices/:noticeId */
+export async function runTenantNoticeDelete(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  noticeId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.deleteNotice({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      noticeId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
