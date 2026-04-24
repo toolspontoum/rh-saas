@@ -9,6 +9,7 @@ import { supabase } from "../../lib/supabase";
 export default function ResetPasswordPage() {
   const router = useRouter();
 
+  const [mode, setMode] = useState<"create" | "reset">("reset");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,9 @@ export default function ResetPasswordPage() {
         const code = url.searchParams.get("code");
         const tokenHash = url.searchParams.get("token_hash");
         const typeRaw = url.searchParams.get("type");
+        if (typeRaw === "invite" || typeRaw === "signup") {
+          setMode("create");
+        }
 
         // Alguns templates/flows do Supabase enviam `code` (PKCE),
         // outros enviam `token_hash` + `type` (invite/recovery/etc).
@@ -107,8 +111,12 @@ export default function ResetPasswordPage() {
   return (
     <main className="container">
       <div className="card" style={{ maxWidth: 520, margin: "60px auto" }}>
-        <h1>Redefinir senha</h1>
-        <p className="muted">Digite sua nova senha para concluir a recuperacao de acesso.</p>
+        <h1>{mode === "create" ? "Criar senha" : "Redefinir senha"}</h1>
+        <p className="muted">
+          {mode === "create"
+            ? "Defina uma senha para concluir seu primeiro acesso."
+            : "Digite sua nova senha para concluir a recuperacao de acesso."}
+        </p>
 
         {preparing ? <p>Validando link de recuperacao...</p> : null}
 
