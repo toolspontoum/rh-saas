@@ -1,3 +1,5 @@
+import { inferWebBaseUrl } from "../../lib/web-base-url.js";
+import { supabaseAdmin } from "../../lib/supabase.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import { TenantUsersRepository } from "./tenant-users.repository.js";
 import type {
@@ -17,6 +19,69 @@ export class TenantUsersService {
   private requireAdminCompany(companyId: string | null | undefined): string {
     if (!companyId) throw new Error("COMPANY_SCOPE_REQUIRED");
     return companyId;
+  }
+
+  private passwordSetupRedirectUrl(): string {
+    return `${inferWebBaseUrl()}/reset-password`;
+  }
+
+  private async dispatchFirstAccessEmail(
+    email: string,
+    emailConfirmedAt: string | null | undefined
+  ): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    if (!emailConfirmedAt) {
+      const { error } = await supabaseAdmin.auth.resend({ type: "signup", email: normalized });
+      if (error) {
+        console.error("[tenant-users] auth.resend signup failed", error);
+        throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
+      }
+      return;
+    }
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
+      redirectTo: this.passwordSetupRedirectUrl()
+    });
+    if (error) {
+      console.error("[tenant-users] resetPasswordForEmail (first access) failed", error);
+      throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
+    }
+  }
+
+  private async dispatchPasswordResetEmail(email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
+      redirectTo: this.passwordSetupRedirectUrl()
+    });
+    if (error) {
+      console.error("[tenant-users] resetPasswordForEmail failed", error);
+      throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
+    }
+  }
+
+  private async ensureFirstAccessEmailAfterEmployeeLink(input: {
+    invitedFresh: boolean;
+    email: string | undefined;
+    userId: string;
+    companyId: string;
+    tenantId: string;
+    actorUserId: string;
+  }): Promise<void> {
+    if (input.invitedFresh || !input.email?.trim()) return;
+    const meta = await this.repository.getAuthUserAccessMeta(input.userId);
+    if (meta.lastSignInAt) return;
+    await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt);
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.employee.first_access_email_dispatched",
+      resourceType: "tenant_user",
+      resourceId: input.userId,
+      result: "success",
+      metadata: { channel: meta.emailConfirmedAt ? "recovery" : "signup_resend" }
+    });
   }
 
   /**
@@ -219,6 +284,7 @@ export class TenantUsersService {
     }
 
     let targetUserId: string | null = null;
+    let invitedFresh = false;
 
     if (normalizedEmail) {
       targetUserId = await this.repository.findUserIdByEmail(normalizedEmail);
@@ -232,6 +298,7 @@ export class TenantUsersService {
       if (!normalizedEmail) {
         throw new Error("EMPLOYEE_USER_NOT_FOUND_BY_CPF");
       }
+      invitedFresh = true;
       targetUserId = await this.repository.inviteUserByEmail({
         email: normalizedEmail,
         fullName: input.fullName
@@ -246,6 +313,21 @@ export class TenantUsersService {
       email: normalizedEmail ?? null,
       cpf: normalizedCpf ?? null,
       phone: normalizedPhone ?? null
+    });
+
+    let emailForInvite = normalizedEmail;
+    if (!emailForInvite) {
+      const metaEarly = await this.repository.getAuthUserAccessMeta(targetUserId);
+      emailForInvite = metaEarly.email?.trim().toLowerCase() ?? undefined;
+    }
+
+    await this.ensureFirstAccessEmailAfterEmployeeLink({
+      invitedFresh,
+      email: emailForInvite,
+      userId: targetUserId,
+      companyId,
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId
     });
 
     await this.repository.insertAuditLog({
@@ -266,6 +348,101 @@ export class TenantUsersService {
     const linked = await this.repository.getUserInTenant(input.tenantId, targetUserId, companyId);
     if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
     return linked;
+  }
+
+  async resendEmployeeInvite(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId?: string | null;
+    targetUserId: string;
+  }): Promise<{ ok: true }> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager"
+    ]);
+
+    const target = await this.repository.getUserInTenant(
+      input.tenantId,
+      input.targetUserId,
+      input.companyId
+    );
+    if (!target) {
+      throw new Error("TARGET_USER_NOT_IN_TENANT");
+    }
+    if (!target.roles.includes("employee")) {
+      throw new Error("EMPLOYEE_ACTION_ONLY");
+    }
+
+    const email = target.email?.trim().toLowerCase();
+    if (!email) {
+      throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    }
+
+    const meta = await this.repository.getAuthUserAccessMeta(input.targetUserId);
+    if (meta.lastSignInAt) {
+      throw new Error("EMPLOYEE_RESEND_INVITE_NOT_APPLICABLE");
+    }
+
+    await this.dispatchFirstAccessEmail(email, meta.emailConfirmedAt);
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: input.companyId ?? target.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.employee.invite_resent",
+      resourceType: "tenant_user",
+      resourceId: input.targetUserId,
+      result: "success",
+      metadata: { channel: meta.emailConfirmedAt ? "recovery" : "signup_resend" }
+    });
+
+    return { ok: true };
+  }
+
+  async sendEmployeePasswordResetEmail(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId?: string | null;
+    targetUserId: string;
+  }): Promise<{ ok: true }> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager"
+    ]);
+
+    const target = await this.repository.getUserInTenant(
+      input.tenantId,
+      input.targetUserId,
+      input.companyId
+    );
+    if (!target) {
+      throw new Error("TARGET_USER_NOT_IN_TENANT");
+    }
+    if (!target.roles.includes("employee")) {
+      throw new Error("EMPLOYEE_ACTION_ONLY");
+    }
+
+    const email = target.email?.trim().toLowerCase();
+    if (!email) {
+      throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    }
+
+    await this.dispatchPasswordResetEmail(email);
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: input.companyId ?? target.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.employee.password_reset_email_sent",
+      resourceType: "tenant_user",
+      resourceId: input.targetUserId,
+      result: "success",
+      metadata: {}
+    });
+
+    return { ok: true };
   }
 
   async lookupEmployeeByEmail(input: {

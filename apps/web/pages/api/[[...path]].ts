@@ -1156,6 +1156,30 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         return res.status(outUs.status).json(outUs.body);
       }
 
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[3] === "users" &&
+        segments[5] === "resend-invite" &&
+        segments[4]
+      ) {
+        const { runTenantUserResendInvitePost } = await import("@vv/api/run-tenant-writes");
+        const outRi = await runTenantUserResendInvitePost(authUx, tenantUx, segments[4], xCompanyUx);
+        return res.status(outRi.status).json(outRi.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[3] === "users" &&
+        segments[5] === "password-reset-email" &&
+        segments[4]
+      ) {
+        const { runTenantUserPasswordResetEmailPost } = await import("@vv/api/run-tenant-writes");
+        const outPr = await runTenantUserPasswordResetEmailPost(authUx, tenantUx, segments[4], xCompanyUx);
+        return res.status(outPr.status).json(outPr.body);
+      }
+
       if (req.method === "DELETE" && segments.length === 5 && segments[3] === "users" && segments[4]) {
         const bodyDel = await readJsonBody(req);
         const { runTenantUserDelete } = await import("@vv/api/run-tenant-writes");

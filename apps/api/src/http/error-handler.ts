@@ -425,6 +425,39 @@ const knownErrors = new Map<string, ApiErrorShape>([
   [
     "EMPLOYEE_PREREG_BATCH_NOT_FOUND",
     { status: 404, code: "EMPLOYEE_PREREG_BATCH_NOT_FOUND", message: "Lote de importacao nao encontrado." }
+  ],
+  [
+    "EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE",
+    {
+      status: 400,
+      code: "EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE",
+      message: "Este utilizador nao tem e-mail na conta de autenticacao; nao e possivel enviar convite ou reset."
+    }
+  ],
+  [
+    "EMPLOYEE_RESEND_INVITE_NOT_APPLICABLE",
+    {
+      status: 400,
+      code: "EMPLOYEE_RESEND_INVITE_NOT_APPLICABLE",
+      message: "Reenvio de convite apenas para quem ainda nao iniciou sessao pela primeira vez."
+    }
+  ],
+  [
+    "EMPLOYEE_ACTION_ONLY",
+    {
+      status: 400,
+      code: "EMPLOYEE_ACTION_ONLY",
+      message: "Esta accao aplica-se apenas a colaboradores (perfil employee)."
+    }
+  ],
+  [
+    "AUTH_EMAIL_DISPATCH_FAILED",
+    {
+      status: 502,
+      code: "AUTH_EMAIL_DISPATCH_FAILED",
+      message:
+        "Falha ao pedir envio de e-mail ao Supabase Auth. Verifique SMTP/templates no painel Supabase e a variavel WEB_APP_URL (redirect permitido)."
+    }
   ]
 ]);
 

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { inferWebBaseUrl } from "../../lib/web-base-url.js";
+
 const FEATURE_CODES = [
   "mod_recruitment",
   "mod_documents",
@@ -231,8 +233,10 @@ export class PlatformRepository {
   }
 
   async inviteUserByEmail(email: string, fullName: string): Promise<string> {
+    const redirectTo = `${inferWebBaseUrl()}/reset-password`;
     const { data, error } = await this.db.auth.admin.inviteUserByEmail(email.toLowerCase(), {
-      data: { full_name: fullName }
+      data: { full_name: fullName },
+      redirectTo
     });
     if (error) throw error;
     if (!data.user?.id) throw new Error("USER_INVITE_FAILED");

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { env } from "../../config/env.js";
+import { inferWebBaseUrl } from "../../lib/web-base-url.js";
 import { withTimeout } from "../../lib/with-timeout.js";
 import {
   extractCandidateProfileFromResumeFile,
@@ -1170,19 +1171,6 @@ function validateJobDocumentBundle(
     validated.push(upload);
   }
   return validated;
-}
-
-function inferWebBaseUrl(): string {
-  const configured = env.WEB_APP_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-
-  const firstAllowed = env.WEB_ALLOWED_ORIGINS
-    .split(",")
-    .map((item) => item.trim())
-    .find((item) => item.startsWith("http"));
-  if (firstAllowed) return firstAllowed.replace(/\/$/, "");
-
-  return "https://rh-saas-delta.vercel.app";
 }
 
 function validateAndNormalizeQuestionAnswers(

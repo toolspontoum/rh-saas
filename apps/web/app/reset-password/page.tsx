@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { setToken } from "../../lib/auth";
+import { clearToken, setToken } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
 
 export default function ResetPasswordPage() {
@@ -73,6 +73,8 @@ export default function ResetPasswordPage() {
     }
 
     setOkMsg("Senha redefinida com sucesso. Voce ja pode entrar.");
+    clearToken();
+    await supabase.auth.signOut();
     setTimeout(() => router.push("/"), 1200);
   }
 

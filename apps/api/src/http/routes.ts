@@ -1620,6 +1620,36 @@ apiRouter.patch("/v1/tenants/:tenantId/users/:targetUserId/status", requireAuth,
   }
 });
 
+apiRouter.post("/v1/tenants/:tenantId/users/:targetUserId/resend-invite", requireAuth, async (req, res) => {
+  try {
+    const result = await tenantUsersHandlers.resendEmployeeInvite({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      targetUserId: req.params.targetUserId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/users/:targetUserId/password-reset-email", requireAuth, async (req, res) => {
+  try {
+    const result = await tenantUsersHandlers.sendEmployeePasswordResetEmail({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      targetUserId: req.params.targetUserId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.delete("/v1/tenants/:tenantId/users/:targetUserId", requireAuth, async (req, res) => {
   try {
     const result = await tenantUsersHandlers.deleteUser({
