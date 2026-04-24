@@ -1027,6 +1027,58 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         return res.status(outDr.status).json(outDr.body);
       }
 
+      /** Comunicados (notices): POST/DELETE sem cold start do Express (504 ao enviar com anexo). */
+      if (
+        req.method === "POST" &&
+        segments.length === 5 &&
+        segments[3] === "notices" &&
+        segments[4] === "upload-intent"
+      ) {
+        const bodyNui = await readJsonBody(req);
+        const { runTenantNoticesUploadIntentPost } = await import("@vv/api/run-tenant-writes");
+        const outNui = await runTenantNoticesUploadIntentPost(authUx, tenantUx, bodyNui, xCompanyUx);
+        return res.status(outNui.status).json(outNui.body);
+      }
+
+      if (
+        req.method === "POST" &&
+        segments.length === 6 &&
+        segments[3] === "notices" &&
+        segments[4] &&
+        (segments[5] === "read" || segments[5] === "archive" || segments[5] === "unarchive")
+      ) {
+        const noticeIdAct = segments[4];
+        const act = segments[5];
+        const {
+          runTenantNoticeReadPost,
+          runTenantNoticeArchivePost,
+          runTenantNoticeUnarchivePost
+        } = await import("@vv/api/run-tenant-writes");
+        if (act === "read") {
+          const outNr = await runTenantNoticeReadPost(authUx, tenantUx, noticeIdAct, xCompanyUx);
+          return res.status(outNr.status).json(outNr.body);
+        }
+        if (act === "archive") {
+          const outNa = await runTenantNoticeArchivePost(authUx, tenantUx, noticeIdAct, xCompanyUx);
+          return res.status(outNa.status).json(outNa.body);
+        }
+        const outNu = await runTenantNoticeUnarchivePost(authUx, tenantUx, noticeIdAct, xCompanyUx);
+        return res.status(outNu.status).json(outNu.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[3] === "notices" && segments[4]) {
+        const { runTenantNoticeDelete } = await import("@vv/api/run-tenant-writes");
+        const outNd = await runTenantNoticeDelete(authUx, tenantUx, segments[4], xCompanyUx);
+        return res.status(outNd.status).json(outNd.body);
+      }
+
+      if (req.method === "POST" && segments.length === 4 && segments[3] === "notices") {
+        const bodyNc = await readJsonBody(req);
+        const { runTenantNoticesPost } = await import("@vv/api/run-tenant-writes");
+        const outNc = await runTenantNoticesPost(authUx, tenantUx, bodyNc, xCompanyUx);
+        return res.status(outNc.status).json(outNc.body);
+      }
+
       if (
         req.method === "POST" &&
         segments.length === 5 &&
