@@ -1,4 +1,4 @@
-import { inferWebBaseUrl } from "../../lib/web-base-url.js";
+import { inferWebBaseUrl, webBaseUrlFromHeader } from "../../lib/web-base-url.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import { TenantUsersRepository } from "./tenant-users.repository.js";
@@ -21,22 +21,25 @@ export class TenantUsersService {
     return companyId;
   }
 
-  private passwordSetupRedirectUrl(): string {
-    return `${inferWebBaseUrl()}/first-access`;
+  private passwordSetupRedirectUrl(webBaseUrl?: string | null): string {
+    const base = webBaseUrlFromHeader(webBaseUrl) ?? inferWebBaseUrl();
+    return `${base}/first-access`;
   }
 
-  private passwordRecoveryRedirectUrl(): string {
-    return `${inferWebBaseUrl()}/reset-password`;
+  private passwordRecoveryRedirectUrl(webBaseUrl?: string | null): string {
+    const base = webBaseUrlFromHeader(webBaseUrl) ?? inferWebBaseUrl();
+    return `${base}/reset-password`;
   }
 
   private async dispatchFirstAccessEmail(
     email: string,
-    _emailConfirmedAt: string | null | undefined
+    _emailConfirmedAt: string | null | undefined,
+    webBaseUrl?: string | null
   ): Promise<void> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
-      redirectTo: this.passwordSetupRedirectUrl()
+      redirectTo: this.passwordSetupRedirectUrl(webBaseUrl)
     });
     if (error) {
       console.error("[tenant-users] resetPasswordForEmail (first access) failed", error);
@@ -44,11 +47,11 @@ export class TenantUsersService {
     }
   }
 
-  private async dispatchPasswordResetEmail(email: string): Promise<void> {
+  private async dispatchPasswordResetEmail(email: string, webBaseUrl?: string | null): Promise<void> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
-      redirectTo: this.passwordRecoveryRedirectUrl()
+      redirectTo: this.passwordRecoveryRedirectUrl(webBaseUrl)
     });
     if (error) {
       console.error("[tenant-users] resetPasswordForEmail failed", error);
@@ -63,11 +66,12 @@ export class TenantUsersService {
     companyId: string;
     tenantId: string;
     actorUserId: string;
+    webBaseUrl?: string | null;
   }): Promise<void> {
     if (input.invitedFresh || !input.email?.trim()) return;
     const meta = await this.repository.getAuthUserAccessMeta(input.userId);
     if (meta.lastSignInAt) return;
-    await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt);
+    await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt, input.webBaseUrl);
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
       companyId: input.companyId,
@@ -262,6 +266,7 @@ export class TenantUsersService {
     email?: string;
     cpf?: string;
     phone?: string;
+    webBaseUrl?: string;
   }): Promise<TenantUser> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -323,7 +328,8 @@ export class TenantUsersService {
       userId: targetUserId,
       companyId,
       tenantId: input.tenantId,
-      actorUserId: input.actorUserId
+      actorUserId: input.actorUserId,
+      webBaseUrl: input.webBaseUrl ?? null
     });
 
     await this.repository.insertAuditLog({
@@ -351,6 +357,7 @@ export class TenantUsersService {
     actorUserId: string;
     companyId?: string | null;
     targetUserId: string;
+    webBaseUrl?: string;
   }): Promise<{ ok: true }> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -380,7 +387,7 @@ export class TenantUsersService {
       throw new Error("EMPLOYEE_RESEND_INVITE_NOT_APPLICABLE");
     }
 
-    await this.dispatchFirstAccessEmail(email, meta.emailConfirmedAt);
+    await this.dispatchFirstAccessEmail(email, meta.emailConfirmedAt, input.webBaseUrl ?? null);
 
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
@@ -401,6 +408,7 @@ export class TenantUsersService {
     actorUserId: string;
     companyId?: string | null;
     targetUserId: string;
+    webBaseUrl?: string;
   }): Promise<{ ok: true }> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -425,7 +433,7 @@ export class TenantUsersService {
       throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
     }
 
-    await this.dispatchPasswordResetEmail(email);
+    await this.dispatchPasswordResetEmail(email, input.webBaseUrl ?? null);
 
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,

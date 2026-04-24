@@ -14,7 +14,8 @@ export async function runTenantEmployeesPost(
   authorizationHeader: string | null | undefined,
   tenantId: string,
   body: { fullName?: string; email?: string; cpf?: string; phone?: string },
-  xTenantCompanyId: string | null | undefined
+  xTenantCompanyId: string | null | undefined,
+  xWebBaseUrl: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
@@ -28,7 +29,8 @@ export async function runTenantEmployeesPost(
       fullName: body.fullName,
       email: body.email,
       cpf: body.cpf,
-      phone: body.phone
+      phone: body.phone,
+      webBaseUrl: xWebBaseUrl ?? undefined
     });
     return { status: 200, body: result };
   } catch (error) {
@@ -476,7 +478,8 @@ export async function runTenantUserResendInvitePost(
   authorizationHeader: string | null | undefined,
   tenantId: string,
   targetUserId: string,
-  xTenantCompanyId: string | null | undefined
+  xTenantCompanyId: string | null | undefined,
+  xWebBaseUrl: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
@@ -490,7 +493,8 @@ export async function runTenantUserResendInvitePost(
       tenantId,
       actorUserId: s.userId,
       companyId: scope.companyId ?? undefined,
-      targetUserId
+      targetUserId,
+      webBaseUrl: xWebBaseUrl ?? undefined
     });
     return { status: 200, body: result };
   } catch (error) {
@@ -504,7 +508,8 @@ export async function runTenantUserPasswordResetEmailPost(
   authorizationHeader: string | null | undefined,
   tenantId: string,
   targetUserId: string,
-  xTenantCompanyId: string | null | undefined
+  xTenantCompanyId: string | null | undefined,
+  xWebBaseUrl: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
   if (!s.ok) return { status: s.status, body: s.body };
@@ -518,7 +523,8 @@ export async function runTenantUserPasswordResetEmailPost(
       tenantId,
       actorUserId: s.userId,
       companyId: scope.companyId ?? undefined,
-      targetUserId
+      targetUserId,
+      webBaseUrl: xWebBaseUrl ?? undefined
     });
     return { status: 200, body: result };
   } catch (error) {

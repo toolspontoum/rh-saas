@@ -37,7 +37,8 @@ const upsertEmployeeSchema = z.object({
   fullName: z.string().min(3).max(160),
   email: z.string().email().optional(),
   cpf: z.string().max(20).optional(),
-  phone: z.string().max(30).optional()
+  phone: z.string().max(30).optional(),
+  webBaseUrl: z.string().max(240).optional()
 });
 
 const lookupEmployeeByEmailSchema = z.object({
@@ -67,7 +68,8 @@ const targetUserActionSchema = z.object({
   tenantId: z.string().uuid(),
   actorUserId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
-  targetUserId: z.string().uuid()
+  targetUserId: z.string().uuid(),
+  webBaseUrl: z.string().max(240).optional()
 });
 
 export class TenantUsersHandlers {
