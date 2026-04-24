@@ -27,18 +27,10 @@ export class TenantUsersService {
 
   private async dispatchFirstAccessEmail(
     email: string,
-    emailConfirmedAt: string | null | undefined
+    _emailConfirmedAt: string | null | undefined
   ): Promise<void> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
-    if (!emailConfirmedAt) {
-      const { error } = await supabaseAdmin.auth.resend({ type: "signup", email: normalized });
-      if (error) {
-        console.error("[tenant-users] auth.resend signup failed", error);
-        throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
-      }
-      return;
-    }
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
       redirectTo: this.passwordSetupRedirectUrl()
     });
@@ -80,7 +72,7 @@ export class TenantUsersService {
       resourceType: "tenant_user",
       resourceId: input.userId,
       result: "success",
-      metadata: { channel: meta.emailConfirmedAt ? "recovery" : "signup_resend" }
+      metadata: { channel: "recovery" }
     });
   }
 
@@ -394,7 +386,7 @@ export class TenantUsersService {
       resourceType: "tenant_user",
       resourceId: input.targetUserId,
       result: "success",
-      metadata: { channel: meta.emailConfirmedAt ? "recovery" : "signup_resend" }
+      metadata: { channel: "recovery" }
     });
 
     return { ok: true };
