@@ -64,6 +64,41 @@ type AuthUserRow = {
 export class TenantUsersRepository {
   constructor(private readonly db: SupabaseClient) {}
 
+  private async fetchAuthUsersByIds(
+    userIds: string[]
+  ): Promise<Map<string, { email: string | null; lastSignInAt: string | null }>> {
+    const ids = Array.from(new Set((userIds ?? []).filter(Boolean)));
+    if (ids.length === 0) return new Map();
+
+    // Não dá para ler `auth.users` via PostgREST em projetos padrão (Invalid schema: auth).
+    // Então fazemos fetch com o Admin API, mas com concorrência limitada para reduzir custo/latência.
+    const concurrency = 12;
+    const rows: Array<{ id: string; email: string | null; last_sign_in_at: string | null }> = [];
+    for (let i = 0; i < ids.length; i += concurrency) {
+      const chunk = ids.slice(i, i + concurrency);
+      const results = await Promise.allSettled(
+        chunk.map(async (id) => {
+          const { data, error } = await this.db.auth.admin.getUserById(id);
+          if (error) throw error;
+          return {
+            id,
+            email: data.user?.email ?? null,
+            last_sign_in_at: data.user?.last_sign_in_at ?? null
+          };
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") rows.push(r.value);
+      }
+    }
+    const out = new Map<string, { email: string | null; lastSignInAt: string | null }>();
+    for (const row of rows) {
+      if (!row?.id) continue;
+      out.set(row.id, { email: row.email ?? null, lastSignInAt: row.last_sign_in_at ?? null });
+    }
+    return out;
+  }
+
   async getTenantUserCompanyId(tenantId: string, userId: string): Promise<string | null> {
     const { data, error } = await this.db
       .from("tenant_user_profiles")
@@ -120,7 +155,8 @@ export class TenantUsersRepository {
       if (roleError) throw roleError;
       const roleRows = (roleData ?? []) as unknown as UserRoleRow[];
 
-      let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows);
+      const authById = await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id));
+      let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById);
       if (input.search) {
         items = this.filterTenantUsersBySearch(items, input.search);
       }
@@ -163,25 +199,14 @@ export class TenantUsersRepository {
 
     const profileByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
 
-    const authUsers: AuthUserRow[] = [];
-    for (const uid of userIds) {
-      const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(uid);
-      if (authErr) throw authErr;
-      authUsers.push({
-        id: uid,
-        email: authData.user?.email ?? null,
-        lastSignInAt: authData.user?.last_sign_in_at ?? null
-      });
-    }
-
-    const emailByUserId = new Map(authUsers.map((user) => [user.id, user.email]));
+    const authById = await this.fetchAuthUsersByIds(userIds);
     const grouped = new Map<string, TenantUser>();
 
     for (const row of rows) {
       const profile = profileByUserId.get(row.user_id);
       if (!profile) continue;
 
-      const authMeta = authUsers.find((u) => u.id === row.user_id);
+      const authMeta = authById.get(row.user_id) ?? null;
 
       const existing = grouped.get(row.user_id);
       if (existing) {
@@ -198,7 +223,7 @@ export class TenantUsersRepository {
         email:
           profile.data_purged_at
             ? null
-            : (profile.personal_email ?? emailByUserId.get(row.user_id) ?? null),
+            : (profile.personal_email ?? authMeta?.email ?? null),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -238,7 +263,8 @@ export class TenantUsersRepository {
   private async buildTenantUsersForProfiles(
     tenantId: string,
     orderedProfiles: TenantUserProfileRow[],
-    roleRows: UserRoleRow[]
+    roleRows: UserRoleRow[],
+    authById?: Map<string, { email: string | null; lastSignInAt: string | null }>
   ): Promise<TenantUser[]> {
     const rolesByUser = new Map<string, UserRoleRow[]>();
     for (const row of roleRows) {
@@ -252,9 +278,8 @@ export class TenantUsersRepository {
       const rows = rolesByUser.get(profile.user_id);
       if (!rows?.length) continue;
 
-      const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(profile.user_id);
-      if (authErr) throw authErr;
-      const email = authData.user?.email ?? null;
+      const authMeta = authById?.get(profile.user_id) ?? null;
+      const email = authMeta?.email ?? null;
 
       const merged: TenantUser = {
         userId: profile.user_id,
@@ -269,7 +294,7 @@ export class TenantUsersRepository {
         offboardedAt: profile.offboarded_at,
         roles: [],
         isAccessEnabled: false,
-        lastSignInAt: authData.user?.last_sign_in_at ?? null,
+        lastSignInAt: authMeta?.lastSignInAt ?? null,
         dataPurgedAt: profile.data_purged_at ?? null
       };
 

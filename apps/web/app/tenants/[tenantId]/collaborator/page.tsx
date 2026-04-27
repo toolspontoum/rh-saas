@@ -30,6 +30,7 @@ type EmployeeProfile = {
 };
 
 type Paginated<T> = { items: T[] };
+type BulkEmployeeProfiles = { items: Record<string, EmployeeProfile> };
 
 const COLLABORATOR_DELETE_WARNING =
   "Excluir um colaborador é uma ação que não pode ser desfeita, ao prosseguir com a exclusão você irá apagar definitivamente todos os dados e registros desse colaborador.";
@@ -50,28 +51,25 @@ export default function CollaboratorListPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [resendInviteUserId, setResendInviteUserId] = useState<string | null>(null);
   const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
+  const [feedbackModal, setFeedbackModal] = useState<{ title: string; message: string } | null>(null);
 
   async function loadData() {
     setLoading(true);
     try {
       const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
       const allUsers = data.items ?? [];
-      const entries = await Promise.all(
-        allUsers.map(async (item) => {
-          try {
-            const profile = await apiFetch<EmployeeProfile | null>(
-              `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-            );
-            return [item.userId, profile] as const;
-          } catch {
-            return [item.userId, null] as const;
-          }
-        })
-      );
-
-      const next: Record<string, EmployeeProfile> = {};
-      for (const [userId, profile] of entries) {
-        if (profile) next[userId] = profile;
+      const userIds = allUsers.map((u) => u.userId).filter(Boolean);
+      let next: Record<string, EmployeeProfile> = {};
+      if (userIds.length > 0) {
+        try {
+          const bulk = await apiFetch<BulkEmployeeProfiles>(`/v1/tenants/${tenantId}/employee-profiles/bulk`, {
+            method: "POST",
+            body: JSON.stringify({ targetUserIds: userIds })
+          });
+          next = bulk.items ?? {};
+        } catch {
+          next = {};
+        }
       }
       setProfiles(next);
       const collaborators = allUsers.filter((item) => item.roles.includes("employee") || Boolean(next[item.userId]));
@@ -137,7 +135,10 @@ export default function CollaboratorListPage() {
     setError(null);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/resend-invite`, { method: "POST" });
-      await loadData();
+      setFeedbackModal({
+        title: "Convite enviado",
+        message: "Convite reenviado com sucesso. Você pode continuar reenviando para outros colaboradores sem recarregar a página."
+      });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -150,7 +151,10 @@ export default function CollaboratorListPage() {
     setError(null);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/password-reset-email`, { method: "POST" });
-      await loadData();
+      setFeedbackModal({
+        title: "E-mail enviado",
+        message: "E-mail de redefinição de senha enviado com sucesso."
+      });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -340,6 +344,16 @@ export default function CollaboratorListPage() {
           {COLLABORATOR_DELETE_WARNING}
         </p>
       </ConfirmModal>
+
+      <ConfirmModal
+        open={!!feedbackModal}
+        title={feedbackModal?.title ?? ""}
+        message={feedbackModal?.message ?? ""}
+        confirmLabel="OK"
+        cancelLabel="Fechar"
+        onConfirm={() => setFeedbackModal(null)}
+        onCancel={() => setFeedbackModal(null)}
+      />
     </main>
   );
 }

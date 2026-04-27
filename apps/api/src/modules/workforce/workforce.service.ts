@@ -1818,6 +1818,28 @@ export class WorkforceService {
     });
   }
 
+  async bulkEmployeeProfiles(input: {
+    tenantId: string;
+    companyId?: string | null;
+    userId: string;
+    targetUserIds: string[];
+  }): Promise<{ items: Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }> }> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+    const ids = Array.from(new Set((input.targetUserIds ?? []).filter(Boolean))).slice(0, 250);
+    const items = await this.repository.bulkEmployeeProfilesLite({
+      tenantId: input.tenantId,
+      companyId: input.companyId ?? null,
+      userIds: ids
+    });
+    return { items };
+  }
+
   async upsertEmployeeProfile(input: {
     tenantId: string;
     companyId?: string | null;
