@@ -1389,6 +1389,12 @@ apiRouter.get("/v1/tenants/:tenantId/employees/lookup-by-cpf", requireAuth, asyn
 
 apiRouter.post("/v1/tenants/:tenantId/employees", requireAuth, async (req, res) => {
   try {
+    const webBaseUrl =
+      typeof req.headers["x-web-base-url"] === "string"
+        ? req.headers["x-web-base-url"]
+        : Array.isArray(req.headers["x-web-base-url"])
+          ? req.headers["x-web-base-url"][0]
+          : undefined;
     const result = await tenantUsersHandlers.upsertEmployee({
       tenantId: req.params.tenantId,
       actorUserId: (req as AuthenticatedRequest).auth.userId,
@@ -1396,7 +1402,8 @@ apiRouter.post("/v1/tenants/:tenantId/employees", requireAuth, async (req, res) 
       fullName: req.body?.fullName,
       email: req.body?.email,
       cpf: req.body?.cpf,
-      phone: req.body?.phone
+      phone: req.body?.phone,
+      webBaseUrl
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -1622,11 +1629,18 @@ apiRouter.patch("/v1/tenants/:tenantId/users/:targetUserId/status", requireAuth,
 
 apiRouter.post("/v1/tenants/:tenantId/users/:targetUserId/resend-invite", requireAuth, async (req, res) => {
   try {
+    const webBaseUrl =
+      typeof req.headers["x-web-base-url"] === "string"
+        ? req.headers["x-web-base-url"]
+        : Array.isArray(req.headers["x-web-base-url"])
+          ? req.headers["x-web-base-url"][0]
+          : undefined;
     const result = await tenantUsersHandlers.resendEmployeeInvite({
       tenantId: req.params.tenantId,
       actorUserId: (req as AuthenticatedRequest).auth.userId,
       companyId: getTenantCompanyId(req),
-      targetUserId: req.params.targetUserId
+      targetUserId: req.params.targetUserId,
+      webBaseUrl
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -1637,11 +1651,18 @@ apiRouter.post("/v1/tenants/:tenantId/users/:targetUserId/resend-invite", requir
 
 apiRouter.post("/v1/tenants/:tenantId/users/:targetUserId/password-reset-email", requireAuth, async (req, res) => {
   try {
+    const webBaseUrl =
+      typeof req.headers["x-web-base-url"] === "string"
+        ? req.headers["x-web-base-url"]
+        : Array.isArray(req.headers["x-web-base-url"])
+          ? req.headers["x-web-base-url"][0]
+          : undefined;
     const result = await tenantUsersHandlers.sendEmployeePasswordResetEmail({
       tenantId: req.params.tenantId,
       actorUserId: (req as AuthenticatedRequest).auth.userId,
       companyId: getTenantCompanyId(req),
-      targetUserId: req.params.targetUserId
+      targetUserId: req.params.targetUserId,
+      webBaseUrl
     });
     return res.status(200).json(result);
   } catch (error) {

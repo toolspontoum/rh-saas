@@ -929,6 +929,13 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           : Array.isArray(companyRawEmp)
             ? companyRawEmp[0]
             : undefined;
+      const webRawEmp = req.headers["x-web-base-url"];
+      const xWebEmp =
+        typeof webRawEmp === "string"
+          ? webRawEmp
+          : Array.isArray(webRawEmp)
+            ? webRawEmp[0]
+            : undefined;
       const { runTenantEmployeesPost } = await import("@vv/api/run-tenant-writes");
       const authEmp = headerAuthorization(req);
       const bodyEmp = await readJsonBody(req);
@@ -941,7 +948,8 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           cpf: typeof bodyEmp.cpf === "string" ? bodyEmp.cpf : undefined,
           phone: typeof bodyEmp.phone === "string" ? bodyEmp.phone : undefined
         },
-        xCompanyEmp
+        xCompanyEmp,
+        xWebEmp
       );
       return res.status(outEmp.status).json(outEmp.body);
     }
@@ -1164,7 +1172,10 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         segments[4]
       ) {
         const { runTenantUserResendInvitePost } = await import("@vv/api/run-tenant-writes");
-        const outRi = await runTenantUserResendInvitePost(authUx, tenantUx, segments[4], xCompanyUx);
+        const webRaw = req.headers["x-web-base-url"];
+        const xWeb =
+          typeof webRaw === "string" ? webRaw : Array.isArray(webRaw) ? webRaw[0] : undefined;
+        const outRi = await runTenantUserResendInvitePost(authUx, tenantUx, segments[4], xCompanyUx, xWeb);
         return res.status(outRi.status).json(outRi.body);
       }
 
@@ -1176,7 +1187,10 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         segments[4]
       ) {
         const { runTenantUserPasswordResetEmailPost } = await import("@vv/api/run-tenant-writes");
-        const outPr = await runTenantUserPasswordResetEmailPost(authUx, tenantUx, segments[4], xCompanyUx);
+        const webRaw = req.headers["x-web-base-url"];
+        const xWeb =
+          typeof webRaw === "string" ? webRaw : Array.isArray(webRaw) ? webRaw[0] : undefined;
+        const outPr = await runTenantUserPasswordResetEmailPost(authUx, tenantUx, segments[4], xCompanyUx, xWeb);
         return res.status(outPr.status).json(outPr.body);
       }
 

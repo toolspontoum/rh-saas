@@ -1,4 +1,4 @@
-import { inferWebBaseUrl } from "../../lib/web-base-url.js";
+import { inferWebBaseUrl, webBaseUrlFromHeader } from "../../lib/web-base-url.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import { TenantUsersRepository } from "./tenant-users.repository.js";
@@ -21,39 +21,49 @@ export class TenantUsersService {
     return companyId;
   }
 
-  private passwordSetupRedirectUrl(): string {
-    return `${inferWebBaseUrl()}/first-access`;
+  private passwordSetupRedirectUrl(webBaseUrl?: string | null): string {
+    const base = webBaseUrlFromHeader(webBaseUrl) ?? inferWebBaseUrl();
+    return `${base}/first-access`;
   }
 
-  private passwordRecoveryRedirectUrl(): string {
-    return `${inferWebBaseUrl()}/reset-password`;
+  private passwordRecoveryRedirectUrl(webBaseUrl?: string | null): string {
+    const base = webBaseUrlFromHeader(webBaseUrl) ?? inferWebBaseUrl();
+    return `${base}/reset-password`;
   }
 
   private async dispatchFirstAccessEmail(
     email: string,
-    _emailConfirmedAt: string | null | undefined
-  ): Promise<void> {
+    _emailConfirmedAt: string | null | undefined,
+    webBaseUrl?: string | null
+  ): Promise<{ redirectTo: string }> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    const redirectTo = this.passwordSetupRedirectUrl(webBaseUrl);
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
-      redirectTo: this.passwordSetupRedirectUrl()
+      redirectTo
     });
     if (error) {
       console.error("[tenant-users] resetPasswordForEmail (first access) failed", error);
       throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
     }
+    return { redirectTo };
   }
 
-  private async dispatchPasswordResetEmail(email: string): Promise<void> {
+  private async dispatchPasswordResetEmail(
+    email: string,
+    webBaseUrl?: string | null
+  ): Promise<{ redirectTo: string }> {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
+    const redirectTo = this.passwordRecoveryRedirectUrl(webBaseUrl);
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalized, {
-      redirectTo: this.passwordRecoveryRedirectUrl()
+      redirectTo
     });
     if (error) {
       console.error("[tenant-users] resetPasswordForEmail failed", error);
       throw new Error("AUTH_EMAIL_DISPATCH_FAILED");
     }
+    return { redirectTo };
   }
 
   private async ensureFirstAccessEmailAfterEmployeeLink(input: {
@@ -63,11 +73,12 @@ export class TenantUsersService {
     companyId: string;
     tenantId: string;
     actorUserId: string;
+    webBaseUrl?: string | null;
   }): Promise<void> {
     if (input.invitedFresh || !input.email?.trim()) return;
     const meta = await this.repository.getAuthUserAccessMeta(input.userId);
     if (meta.lastSignInAt) return;
-    await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt);
+    const out = await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt, input.webBaseUrl);
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
       companyId: input.companyId,
@@ -76,7 +87,11 @@ export class TenantUsersService {
       resourceType: "tenant_user",
       resourceId: input.userId,
       result: "success",
-      metadata: { channel: "recovery" }
+      metadata: {
+        channel: "recovery",
+        redirectTo: out.redirectTo,
+        webBaseUrl: input.webBaseUrl ?? null
+      }
     });
   }
 
@@ -262,6 +277,7 @@ export class TenantUsersService {
     email?: string;
     cpf?: string;
     phone?: string;
+    webBaseUrl?: string;
   }): Promise<TenantUser> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -323,7 +339,8 @@ export class TenantUsersService {
       userId: targetUserId,
       companyId,
       tenantId: input.tenantId,
-      actorUserId: input.actorUserId
+      actorUserId: input.actorUserId,
+      webBaseUrl: input.webBaseUrl ?? null
     });
 
     await this.repository.insertAuditLog({
@@ -351,6 +368,7 @@ export class TenantUsersService {
     actorUserId: string;
     companyId?: string | null;
     targetUserId: string;
+    webBaseUrl?: string;
   }): Promise<{ ok: true }> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -380,7 +398,7 @@ export class TenantUsersService {
       throw new Error("EMPLOYEE_RESEND_INVITE_NOT_APPLICABLE");
     }
 
-    await this.dispatchFirstAccessEmail(email, meta.emailConfirmedAt);
+    const out = await this.dispatchFirstAccessEmail(email, meta.emailConfirmedAt, input.webBaseUrl ?? null);
 
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
@@ -390,7 +408,11 @@ export class TenantUsersService {
       resourceType: "tenant_user",
       resourceId: input.targetUserId,
       result: "success",
-      metadata: { channel: "recovery" }
+      metadata: {
+        channel: "recovery",
+        redirectTo: out.redirectTo,
+        webBaseUrl: input.webBaseUrl ?? null
+      }
     });
 
     return { ok: true };
@@ -401,6 +423,7 @@ export class TenantUsersService {
     actorUserId: string;
     companyId?: string | null;
     targetUserId: string;
+    webBaseUrl?: string;
   }): Promise<{ ok: true }> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -425,7 +448,7 @@ export class TenantUsersService {
       throw new Error("EMPLOYEE_EMAIL_REQUIRED_FOR_INVITE");
     }
 
-    await this.dispatchPasswordResetEmail(email);
+    const out = await this.dispatchPasswordResetEmail(email, input.webBaseUrl ?? null);
 
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
@@ -435,7 +458,10 @@ export class TenantUsersService {
       resourceType: "tenant_user",
       resourceId: input.targetUserId,
       result: "success",
-      metadata: {}
+      metadata: {
+        redirectTo: out.redirectTo,
+        webBaseUrl: input.webBaseUrl ?? null
+      }
     });
 
     return { ok: true };

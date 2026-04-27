@@ -19,6 +19,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  if (typeof window !== "undefined") {
+    headers.set("X-Web-Base-Url", window.location.origin);
+  }
 
   const tenantId = tenantIdFromApiPath(path);
   if (tenantId && typeof window !== "undefined") {
