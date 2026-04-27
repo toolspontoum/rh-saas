@@ -1742,6 +1742,45 @@ export class WorkforceRepository {
     };
   }
 
+  async bulkEmployeeProfilesLite(input: {
+    tenantId: string;
+    companyId: string | null;
+    userIds: string[];
+  }): Promise<Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }>> {
+    const userIds = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
+    if (userIds.length === 0) return {};
+
+    let query = this.db
+      .from("tenant_user_profiles")
+      .select("user_id,department,contract_type,position_title")
+      .eq("tenant_id", input.tenantId)
+      .in("user_id", userIds);
+
+    if (input.companyId) {
+      query = query.eq("company_id", input.companyId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as Array<{
+      user_id: string;
+      department: string | null;
+      contract_type: string | null;
+      position_title: string | null;
+    }>;
+
+    const out: Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }> = {};
+    for (const row of rows) {
+      if (!row.user_id) continue;
+      out[row.user_id] = {
+        department: row.department ?? null,
+        contractType: row.contract_type ?? null,
+        positionTitle: row.position_title ?? null
+      };
+    }
+    return out;
+  }
+
   async upsertEmployeeProfile(input: {
     tenantId: string;
     companyId?: string | null;

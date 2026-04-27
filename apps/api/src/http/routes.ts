@@ -2311,6 +2311,22 @@ apiRouter.get("/v1/tenants/:tenantId/employee-profile", requireAuth, async (req,
   }
 });
 
+apiRouter.post("/v1/tenants/:tenantId/employee-profiles/bulk", requireAuth, async (req, res) => {
+  try {
+    const targetUserIds = Array.isArray(req.body?.targetUserIds) ? req.body.targetUserIds : [];
+    const result = await workforceHandlers.bulkEmployeeProfiles({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      targetUserIds
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.put("/v1/tenants/:tenantId/employee-profile", requireAuth, async (req, res) => {
   try {
     const result = await workforceHandlers.upsertEmployeeProfile({

@@ -260,6 +260,13 @@ const getEmployeeProfileSchema = z.object({
   targetUserId: z.string().uuid().optional()
 });
 
+const bulkEmployeeProfilesSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  targetUserIds: z.array(z.string().uuid()).min(1).max(250)
+});
+
 const upsertEmployeeProfileSchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
@@ -514,6 +521,11 @@ export class WorkforceHandlers {
   async getEmployeeProfile(input: unknown) {
     const payload = getEmployeeProfileSchema.parse(input);
     return this.service.getEmployeeProfile(payload);
+  }
+
+  async bulkEmployeeProfiles(input: unknown) {
+    const payload = bulkEmployeeProfilesSchema.parse(input);
+    return this.service.bulkEmployeeProfiles(payload);
   }
 
   async upsertEmployeeProfile(input: unknown) {
