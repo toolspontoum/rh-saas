@@ -22,6 +22,7 @@ type TenantUserProfileRow = {
   full_name: string | null;
   cpf: string | null;
   phone: string | null;
+  personal_email?: string | null;
   status: TenantUserStatus;
   offboard_reason: string | null;
   offboarded_at: string | null;
@@ -90,7 +91,7 @@ export class TenantUsersRepository {
       let profileQuery = this.db
         .from("tenant_user_profiles")
         .select(
-          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
+          "user_id,company_id,full_name,cpf,phone,personal_email,status,offboard_reason,offboarded_at,data_purged_at"
         )
         .eq("tenant_id", input.tenantId)
         .eq("company_id", input.companyId);
@@ -146,7 +147,7 @@ export class TenantUsersRepository {
       let profilesQuery = this.db
         .from("tenant_user_profiles")
         .select(
-          "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
+          "user_id,company_id,full_name,cpf,phone,personal_email,status,offboard_reason,offboarded_at,data_purged_at"
         )
         .eq("tenant_id", input.tenantId)
         .in("user_id", userIds);
@@ -194,7 +195,10 @@ export class TenantUsersRepository {
         userId: row.user_id,
         tenantId: input.tenantId,
         companyId: profile.company_id,
-        email: emailByUserId.get(row.user_id) ?? null,
+        email:
+          profile.data_purged_at
+            ? null
+            : (profile.personal_email ?? emailByUserId.get(row.user_id) ?? null),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -256,7 +260,7 @@ export class TenantUsersRepository {
         userId: profile.user_id,
         tenantId,
         companyId: profile.company_id,
-        email: profile.data_purged_at ? null : email,
+        email: profile.data_purged_at ? null : (profile.personal_email ?? email),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -288,7 +292,7 @@ export class TenantUsersRepository {
     let profileQuery = this.db
       .from("tenant_user_profiles")
       .select(
-        "user_id,company_id,full_name,cpf,phone,status,offboard_reason,offboarded_at,data_purged_at"
+        "user_id,company_id,full_name,cpf,phone,personal_email,status,offboard_reason,offboarded_at,data_purged_at"
       )
       .eq("tenant_id", tenantId)
       .eq("user_id", userId);
@@ -317,7 +321,7 @@ export class TenantUsersRepository {
       userId,
       tenantId,
       companyId: profile.company_id,
-      email: profile.data_purged_at ? null : authData.user?.email ?? null,
+      email: profile.data_purged_at ? null : (profile.personal_email ?? authData.user?.email ?? null),
       fullName: profile.full_name,
       cpf: profile.cpf,
       phone: profile.phone,
@@ -874,7 +878,7 @@ export class TenantUsersRepository {
     return {
       exists: existsForEmployeePrereg,
       userId: outUserId,
-      email: authUser?.email ?? normalizedEmailHint,
+      email: profile?.personal_email ?? authUser?.email ?? normalizedEmailHint,
       fullName:
         profile?.full_name ??
         candidateProfile?.full_name ??
