@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { Mail } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
@@ -97,6 +98,7 @@ export default function TenantUsersPage() {
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [reason, setReason] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -227,6 +229,20 @@ export default function TenantUsersPage() {
       setError((err as Error).message);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function sendPasswordResetEmail(userId: string) {
+    setPasswordResetUserId(userId);
+    setError(null);
+    setOkMsg(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/password-reset-email`, { method: "POST" });
+      setOkMsg("E-mail de redefinicao de senha enviado.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPasswordResetUserId(null);
     }
   }
 
@@ -427,6 +443,20 @@ export default function TenantUsersPage() {
                     <td>{roles.join(", ") || "-"}</td>
                     <td>
                       <div className="row">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Enviar link de redefinicao de senha"
+                          aria-label="Enviar link de redefinicao de senha"
+                          disabled={
+                            !item.email?.trim() ||
+                            busyUserId === item.userId ||
+                            passwordResetUserId === item.userId
+                          }
+                          onClick={() => void sendPasswordResetEmail(item.userId)}
+                        >
+                          <Mail size={16} aria-hidden />
+                        </button>
                         <button
                           type="button"
                           className="secondary"

@@ -476,6 +476,14 @@ const knownErrors = new Map<string, ApiErrorShape>([
     }
   ],
   [
+    "PASSWORD_RESET_TARGET_NOT_ALLOWED",
+    {
+      status: 400,
+      code: "PASSWORD_RESET_TARGET_NOT_ALLOWED",
+      message: "Redefinicao de senha nao disponivel para este perfil de utilizador."
+    }
+  ],
+  [
     "AUTH_EMAIL_DISPATCH_FAILED",
     {
       status: 502,

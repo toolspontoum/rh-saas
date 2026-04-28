@@ -30,7 +30,8 @@ export default function NewMassNoticePage() {
   const tenantId = params.tenantId;
 
   const [title, setTitle] = useState("Comunicado RH");
-  const [message, setMessage] = useState("");
+  /** Corpo inicial não vazio: a API exige message com mínimo de 3 caracteres (HTML do editor conta). */
+  const [message, setMessage] = useState("<p>Novo comunicado interno.</p>");
   const [target, setTarget] = useState<"all" | "employee" | "manager">("all");
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [profiles, setProfiles] = useState<Record<string, EmployeeProfile>>({});
@@ -157,9 +158,25 @@ export default function NewMassNoticePage() {
     setPendingAttachments((current) => [...current, ...files.map((file) => ({ tempId: crypto.randomUUID(), file }))]);
   }
 
+  function plainTextFromHtml(html: string): string {
+    return html
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    const bodyPlain = plainTextFromHtml(message);
+    if (bodyPlain.length < 3) {
+      setError("Escreva o comunicado com pelo menos 3 caracteres (alem das marcas HTML).");
+      return;
+    }
+    if (target === "employee" && filteredByContract.length === 0) {
+      setError("Nenhum colaborador corresponde aos filtros. Ajuste departamento, cargo ou contrato.");
+      return;
+    }
     try {
       const recipientUserIds = target === "employee" ? filteredByContract.map((item) => item.userId) : [];
       const attachments = await uploadNoticeAttachments();

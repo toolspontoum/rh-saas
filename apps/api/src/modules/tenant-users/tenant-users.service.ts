@@ -462,8 +462,11 @@ export class TenantUsersService {
     if (!target) {
       throw new Error("TARGET_USER_NOT_IN_TENANT");
     }
-    if (!target.roles.includes("employee")) {
-      throw new Error("EMPLOYEE_ACTION_ONLY");
+    const canReceivePasswordReset = target.roles.some((r) =>
+      ["employee", "owner", "admin", "manager", "analyst", "preposto"].includes(r)
+    );
+    if (!canReceivePasswordReset) {
+      throw new Error("PASSWORD_RESET_TARGET_NOT_ALLOWED");
     }
 
     const email = target.email?.trim().toLowerCase();
@@ -477,7 +480,7 @@ export class TenantUsersService {
       tenantId: input.tenantId,
       companyId: input.companyId ?? target.companyId,
       actorUserId: input.actorUserId,
-      action: "tenant.employee.password_reset_email_sent",
+      action: "tenant.user.password_reset_email_sent",
       resourceType: "tenant_user",
       resourceId: input.targetUserId,
       result: "success",
