@@ -306,6 +306,26 @@ button.danger {
   background: #f5f8fd;
 }
 
+.application-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+}
+
+.application-status-badge--approved {
+  background: #e7f7ec;
+  color: #1e8b43;
+  border-color: #bfeacd;
+}
+
+.application-status-badge--rejected {
+  background: #fde9e9;
+  color: #b02828;
+  border-color: #f3b8b8;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

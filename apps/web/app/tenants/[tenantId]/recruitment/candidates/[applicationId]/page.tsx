@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { Breadcrumbs } from "../../../../../../components/breadcrumbs";
-import { ConfirmModal } from "../../../../../../components/confirm-modal";
 import { apiFetch } from "../../../../../../lib/api";
 
 type JobQuestion = {
@@ -97,7 +96,7 @@ function applicationStatusLabel(status: ApplicationDetails["status"]): string {
   if (status === "submitted") return "Submetido";
   if (status === "in_review") return "Em analise";
   if (status === "approved") return "Aprovado";
-  if (status === "rejected") return "Rejeitado";
+  if (status === "rejected") return "Reprovado";
   if (status === "withdrawn") return "Candidatura cancelada";
   return "Arquivado";
 }
@@ -148,8 +147,7 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingDecision, setSavingDecision] = useState(false);
-  const [openApprove, setOpenApprove] = useState(false);
-  const [openReject, setOpenReject] = useState(false);
+  const [openOnboardingModal, setOpenOnboardingModal] = useState(false);
 
   const safeJobDescription = useMemo(
     () => DOMPurify.sanitize(item?.job.description ?? ""),
@@ -180,7 +178,14 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
     void load();
   }, [tenantId, applicationId]);
 
-  async function approve() {
+  function openOnboardingPrompt() {
+    if (!item) return;
+    setError(null);
+    setOkMsg(null);
+    setOpenOnboardingModal(true);
+  }
+
+  async function markApprovedOnly() {
     if (!item) return;
     setError(null);
     setOkMsg(null);
@@ -191,9 +196,49 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
         method: "PATCH",
         body: JSON.stringify({ status: "approved" })
       });
-      setOpenApprove(false);
-      setOkMsg("Candidato aprovado com sucesso.");
+      setOpenOnboardingModal(false);
+      setOkMsg("Candidato aprovado. Você pode iniciar o onboarding depois.");
       await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSavingDecision(false);
+    }
+  }
+
+  async function startOnboardingNow() {
+    if (!item) return;
+    setError(null);
+    setOkMsg(null);
+
+    setSavingDecision(true);
+    try {
+      const fullName = (item.candidateProfile?.fullName ?? item.candidate.fullName).trim();
+      const email = (item.candidateProfile?.email ?? item.candidate.email).trim().toLowerCase();
+      const cpf = (item.candidateProfile?.cpf ?? item.candidate.cpf ?? "").trim();
+      const phone = (item.candidateProfile?.phone ?? item.candidate.phone ?? "").trim();
+
+      // Garantir status aprovado (mesmo se já estiver aprovado)
+      await apiFetch(`/v1/tenants/${tenantId}/jobs/${item.jobId}/applications/${item.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "approved" })
+      });
+
+      // Converte candidato em colaborador e dispara convite (backend)
+      await apiFetch(`/v1/tenants/${tenantId}/employees`, {
+        method: "POST",
+        body: JSON.stringify({
+          fullName,
+          email,
+          cpf: cpf || undefined,
+          phone: phone || undefined
+        })
+      });
+
+      setOpenOnboardingModal(false);
+      setOkMsg("Onboarding iniciado: colaborador criado e convite enviado.");
+      await load();
+      router.push(`/tenants/${tenantId}/collaborator`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -212,8 +257,27 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
         method: "PATCH",
         body: JSON.stringify({ status: "rejected" })
       });
-      setOpenReject(false);
       setOkMsg("Candidato reprovado com sucesso.");
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSavingDecision(false);
+    }
+  }
+
+  async function undoReject() {
+    if (!item) return;
+    setError(null);
+    setOkMsg(null);
+
+    setSavingDecision(true);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/jobs/${item.jobId}/applications/${item.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "in_review" })
+      });
+      setOkMsg("Reprovação desfeita. Status voltou para Em análise.");
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -255,32 +319,54 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
           >
             Voltar
           </button>
-          <button
-            type="button"
-            onClick={() => setOpenApprove(true)}
-            disabled={
-              !item ||
-              item.status === "approved" ||
-              item.status === "archived" ||
-              item.status === "rejected" ||
-              item.status === "withdrawn"
-            }
-          >
-            Aprovar candidato
-          </button>
-          <button
-            type="button"
-            className="danger"
-            onClick={() => setOpenReject(true)}
-            disabled={
-              !item ||
-              item.status === "rejected" ||
-              item.status === "archived" ||
-              item.status === "withdrawn"
-            }
-          >
-            Reprovar candidato
-          </button>
+          {item?.status === "approved" ? (
+            <>
+              <span className="badge application-status-badge application-status-badge--approved">
+                Status: {applicationStatusLabel(item.status)}
+              </span>
+              <button type="button" onClick={openOnboardingPrompt} disabled={!item || savingDecision}>
+                Iniciar Onboarding
+              </button>
+            </>
+          ) : item?.status === "rejected" ? (
+            <>
+              <span className="badge application-status-badge application-status-badge--rejected">
+                Status: {applicationStatusLabel(item.status)}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                title="Desfazer reprovação"
+                aria-label="Desfazer reprovação"
+                onClick={() => void undoReject()}
+                disabled={!item || savingDecision}
+              >
+                ↩
+              </button>
+            </>
+          ) : item?.status === "submitted" || item?.status === "in_review" ? (
+            <>
+              <button
+                type="button"
+                onClick={openOnboardingPrompt}
+                disabled={!item || savingDecision}
+              >
+                Aprovar candidato
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => void reject()}
+                disabled={!item || savingDecision}
+              >
+                Reprovar candidato
+              </button>
+            </>
+          ) : item ? (
+            <span className="badge application-status-badge">
+              Status: {applicationStatusLabel(item.status)}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -419,37 +505,38 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
         </>
       ) : null}
 
-      <ConfirmModal
-        open={openApprove}
-        title="Aprovar candidato"
-        message={
-          item
-            ? `Confirmar aprovacao de ${item.candidate.fullName} para a vaga "${item.job.title}"?`
-            : ""
-        }
-        confirmLabel="Aprovar"
-        cancelLabel="Cancelar"
-        busy={savingDecision}
-        busyLabel="A gravar..."
-        onCancel={() => (savingDecision ? null : setOpenApprove(false))}
-        onConfirm={() => void approve()}
-      />
-      <ConfirmModal
-        open={openReject}
-        title="Reprovar candidato"
-        message={
-          item
-            ? `Confirmar reprovacao de ${item.candidate.fullName} para a vaga "${item.job.title}"?`
-            : ""
-        }
-        confirmLabel="Reprovar"
-        cancelLabel="Cancelar"
-        danger
-        busy={savingDecision}
-        busyLabel="A gravar..."
-        onCancel={() => (savingDecision ? null : setOpenReject(false))}
-        onConfirm={() => void reject()}
-      />
+      {openOnboardingModal ? (
+        <div className="modal-backdrop" onClick={() => (savingDecision ? null : setOpenOnboardingModal(false))}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: 0 }}>Iniciar onboarding</h3>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Deseja iniciar o processo de onboarding do candidato?
+            </p>
+            {error ? <p className="error">{error}</p> : null}
+            <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={savingDecision}
+                onClick={() => setOpenOnboardingModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={savingDecision}
+                onClick={() => void markApprovedOnly()}
+              >
+                Iniciar onboarding posteriormente
+              </button>
+              <button type="button" disabled={savingDecision} onClick={() => void startOnboardingNow()}>
+                Sim
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
