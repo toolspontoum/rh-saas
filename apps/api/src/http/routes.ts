@@ -1340,6 +1340,7 @@ apiRouter.get("/v1/tenants/:tenantId/users", requireAuth, async (req, res) => {
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
     const page = typeof req.query.page === "string" ? req.query.page : undefined;
     const pageSize = typeof req.query.pageSize === "string" ? req.query.pageSize : undefined;
+    const includeAuthMeta = typeof req.query.includeAuthMeta === "string" ? req.query.includeAuthMeta : undefined;
 
     const result = await tenantUsersHandlers.listUsers({
       tenantId: req.params.tenantId,
@@ -1348,7 +1349,24 @@ apiRouter.get("/v1/tenants/:tenantId/users", requireAuth, async (req, res) => {
       status,
       search,
       page,
-      pageSize
+      pageSize,
+      includeAuthMeta: includeAuthMeta === "true"
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/users/access-meta/bulk", requireAuth, async (req, res) => {
+  try {
+    const targetUserIds = Array.isArray(req.body?.targetUserIds) ? req.body.targetUserIds : [];
+    const result = await tenantUsersHandlers.bulkAccessMeta({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      targetUserIds
     });
     return res.status(200).json(result);
   } catch (error) {

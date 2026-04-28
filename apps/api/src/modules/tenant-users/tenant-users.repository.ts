@@ -118,9 +118,11 @@ export class TenantUsersRepository {
     page: number;
     pageSize: number;
     includePurgedProfiles?: boolean;
+    includeAuthMeta?: boolean;
   }): Promise<PaginatedResult<TenantUser>> {
     const offset = (input.page - 1) * input.pageSize;
     const showPurged = input.includePurgedProfiles === true;
+    const includeAuthMeta = input.includeAuthMeta === true;
 
     if (input.companyId) {
       let profileQuery = this.db
@@ -155,7 +157,7 @@ export class TenantUsersRepository {
       if (roleError) throw roleError;
       const roleRows = (roleData ?? []) as unknown as UserRoleRow[];
 
-      const authById = await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id));
+      const authById = includeAuthMeta ? await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id)) : new Map();
       let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById);
       if (input.search) {
         items = this.filterTenantUsersBySearch(items, input.search);
@@ -199,14 +201,14 @@ export class TenantUsersRepository {
 
     const profileByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
 
-    const authById = await this.fetchAuthUsersByIds(userIds);
+    const authById = includeAuthMeta ? await this.fetchAuthUsersByIds(userIds) : new Map();
     const grouped = new Map<string, TenantUser>();
 
     for (const row of rows) {
       const profile = profileByUserId.get(row.user_id);
       if (!profile) continue;
 
-      const authMeta = authById.get(row.user_id) ?? null;
+      const authMeta = includeAuthMeta ? (authById.get(row.user_id) ?? null) : null;
 
       const existing = grouped.get(row.user_id);
       if (existing) {
@@ -246,6 +248,17 @@ export class TenantUsersRepository {
       page: input.page,
       pageSize: input.pageSize
     };
+  }
+
+  async bulkAuthAccessMeta(
+    userIds: string[]
+  ): Promise<Record<string, { email: string | null; lastSignInAt: string | null }>> {
+    const authById = await this.fetchAuthUsersByIds(userIds);
+    const out: Record<string, { email: string | null; lastSignInAt: string | null }> = {};
+    for (const [id, meta] of authById.entries()) {
+      out[id] = { email: meta.email ?? null, lastSignInAt: meta.lastSignInAt ?? null };
+    }
+    return out;
   }
 
   private filterTenantUsersBySearch(items: TenantUser[], search: string): TenantUser[] {

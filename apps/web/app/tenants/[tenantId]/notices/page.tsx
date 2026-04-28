@@ -256,7 +256,7 @@ export default function NoticesPage() {
           filtered.map((item) => (
             <div className="card" key={item.id}>
               <h4>{item.title}</h4>
-              <div dangerouslySetInnerHTML={{ __html: item.message }} />
+              <div className="notice-rich-content" dangerouslySetInnerHTML={{ __html: item.message }} />
               {(item.attachments ?? []).length > 0 ? (
                 <div className="stack" style={{ marginTop: 12 }}>
                   <strong>Anexos</strong>
