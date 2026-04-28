@@ -34,7 +34,8 @@ const createNoticeSchema = z.object({
   companyId: z.string().uuid().nullable().optional(),
   userId: z.string().uuid(),
   title: z.string().min(3).max(200),
-  message: z.string().min(3).max(5000),
+  // `message` vem do RichTextEditor (HTML). 5000 chars é baixo para comunicados reais.
+  message: z.string().min(3).max(20000),
   target: z.enum(["all", "employee", "manager"]).default("all"),
   recipientUserIds: z.array(z.string().uuid()).max(500).optional(),
   attachments: z
