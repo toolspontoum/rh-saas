@@ -195,7 +195,32 @@ const knownErrors = new Map<string, ApiErrorShape>([
     {
       status: 400,
       code: "INVALID_BACKOFFICE_ROLE",
-      message: "Perfil invalido para usuario de gestao. Use admin, RH ou analista."
+      message: "Perfil invalido para usuario de gestao. Use admin, RH, analista ou preposto."
+    }
+  ],
+  [
+    "PREPOSTO_PROJECT_REQUIRED",
+    {
+      status: 400,
+      code: "PREPOSTO_PROJECT_REQUIRED",
+      message: "Para preposto, selecione a empresa/projeto no painel ou indique o projeto no formulario."
+    }
+  ],
+  [
+    "TENANT_HAS_NO_COMPANIES",
+    {
+      status: 400,
+      code: "TENANT_HAS_NO_COMPANIES",
+      message: "Nao ha empresas/projetos cadastrados neste assinante."
+    }
+  ],
+  [
+    "PREPOSTO_COMPANY_HEADER_REQUIRED",
+    {
+      status: 400,
+      code: "PREPOSTO_COMPANY_HEADER_REQUIRED",
+      message:
+        "Este utilizador e preposto de varios projetos. Selecione a empresa/projeto no painel ou envie o header X-Tenant-Company-Id."
     }
   ],
   ["USER_INVITE_FAILED", { status: 500, code: "USER_INVITE_FAILED", message: "Nao foi possivel criar/enviar convite para o usuario." }],

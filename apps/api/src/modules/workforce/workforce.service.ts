@@ -7,6 +7,8 @@ import { WorkforceRepository } from "./workforce.repository.js";
 import type {
   EmployeeProfile,
   Notice,
+  NoticeDetails,
+  NoticeRecipient,
   NoticeAttachment,
   OnboardingRequirement,
   OnboardingSubmission,
@@ -137,6 +139,85 @@ export class WorkforceService {
       readAt: readById.get(notice.id) ?? null,
       readCount: countById.get(notice.id) ?? 0
     }));
+  }
+
+  async getNoticeDetails(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    noticeId: string;
+  }): Promise<NoticeDetails> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+
+    const companyId = await this.resolveListCompanyId(input);
+    const notice = await this.repository.getNoticeById({
+      tenantId: input.tenantId,
+      companyId,
+      noticeId: input.noticeId
+    });
+    if (!notice) throw new Error("NOTICE_NOT_FOUND");
+
+    const recipientsFromNotice = (notice.recipientUserIds ?? []).filter(Boolean);
+    const recipientUserIds =
+      recipientsFromNotice.length > 0
+        ? Array.from(new Set(recipientsFromNotice))
+        : notice.target === "manager"
+          ? await this.repository.listActiveTenantUserIdsByRoles({ tenantId: input.tenantId, roles: ["manager"] })
+          : notice.target === "employee"
+            ? await this.repository.listActiveTenantUserIdsByRoles({
+                tenantId: input.tenantId,
+                roles: ["employee", "viewer", "candidate"]
+              })
+            : await this.repository.listActiveTenantUserIdsByRoles({ tenantId: input.tenantId });
+
+    const [attachments, readRows, profiles] = await Promise.all([
+      this.repository.listNoticeAttachments(input.tenantId, [notice.id]),
+      this.repository.listNoticeReadsForNotice({
+        tenantId: input.tenantId,
+        noticeId: notice.id,
+        userIds: recipientUserIds
+      }),
+      this.repository.listTenantUserProfilesLite({
+        tenantId: input.tenantId,
+        companyId,
+        userIds: recipientUserIds
+      })
+    ]);
+
+    for (const item of attachments) {
+      try {
+        item.signedUrl = await this.repository.createSignedReadUrl(env.STORAGE_BUCKET_DOCUMENTS, item.filePath);
+      } catch {
+        item.signedUrl = null;
+      }
+    }
+
+    const readAtByUserId = new Map<string, string>();
+    for (const row of readRows) {
+      if (row.user_id) readAtByUserId.set(row.user_id, row.read_at);
+    }
+
+    const recipients: NoticeRecipient[] = recipientUserIds.map((userId) => {
+      const profile = profiles[userId] ?? { fullName: null, email: null };
+      return {
+        userId,
+        fullName: profile.fullName ?? null,
+        email: profile.email ?? null,
+        readAt: readAtByUserId.get(userId) ?? null
+      };
+    });
+
+    return {
+      ...notice,
+      attachments,
+      recipients
+    };
   }
 
   async createNotice(input: {

@@ -961,4 +961,25 @@ export class TenantUsersRepository {
 
     return this.employeeLookupByResolvedUser(tenantId, userId, { type: "cpf", value: normalizedCpf });
   }
+
+  async listCompanyIdsForTenant(tenantId: string): Promise<string[]> {
+    const { data, error } = await this.db
+      .from("tenant_companies")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return ((data ?? []) as { id: string }[]).map((r) => r.id);
+  }
+
+  async companyBelongsToTenant(tenantId: string, companyId: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .from("tenant_companies")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("id", companyId)
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }
 }

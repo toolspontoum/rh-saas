@@ -1619,7 +1619,8 @@ apiRouter.post("/v1/tenants/:tenantId/backoffice-users", requireAuth, async (req
       email: req.body?.email,
       role: req.body?.role,
       cpf: req.body?.cpf,
-      phone: req.body?.phone
+      phone: req.body?.phone,
+      prepostoCompanyId: req.body?.prepostoCompanyId ?? undefined
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -1716,6 +1717,21 @@ apiRouter.get("/v1/tenants/:tenantId/notices", requireAuth, async (req, res) => 
       userId: (req as AuthenticatedRequest).auth.userId,
       onlyActive,
       onlyArchived
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/notices/:noticeId", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.getNoticeDetails({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      noticeId: req.params.noticeId
     });
     return res.status(200).json(result);
   } catch (error) {

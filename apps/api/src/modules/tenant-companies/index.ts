@@ -8,4 +8,4 @@ const tenantCompaniesRepository = new TenantCompaniesRepository(supabaseAdmin);
 const tenantCompaniesService = new TenantCompaniesService(tenantCompaniesRepository, coreAuthTenantService);
 
 export const tenantCompaniesHandlers = new TenantCompaniesHandlers(tenantCompaniesService);
-export { TenantCompaniesRepository };
+export { TenantCompaniesRepository, tenantCompaniesService };

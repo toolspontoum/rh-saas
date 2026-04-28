@@ -43,7 +43,14 @@ export async function runTenantEmployeesPost(
 export async function runTenantBackofficeUsersPost(
   authorizationHeader: string | null | undefined,
   tenantId: string,
-  body: { fullName?: string; email?: string; role?: string; cpf?: string; phone?: string },
+  body: {
+    fullName?: string;
+    email?: string;
+    role?: string;
+    cpf?: string;
+    phone?: string;
+    prepostoCompanyId?: string | null;
+  },
   xTenantCompanyId: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
@@ -59,7 +66,8 @@ export async function runTenantBackofficeUsersPost(
       email: body.email,
       role: body.role,
       cpf: body.cpf,
-      phone: body.phone
+      phone: body.phone,
+      prepostoCompanyId: body.prepostoCompanyId ?? undefined
     });
     return { status: 200, body: result };
   } catch (error) {

@@ -22,7 +22,9 @@ export async function POST(
       email: typeof body.email === "string" ? body.email : undefined,
       role: typeof body.role === "string" ? body.role : undefined,
       cpf: typeof body.cpf === "string" ? body.cpf : undefined,
-      phone: typeof body.phone === "string" ? body.phone : undefined
+      phone: typeof body.phone === "string" ? body.phone : undefined,
+      prepostoCompanyId:
+        typeof body.prepostoCompanyId === "string" ? body.prepostoCompanyId : undefined
     },
     xCompany
   );

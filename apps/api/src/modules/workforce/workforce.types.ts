@@ -32,6 +32,17 @@ export type NoticeAttachment = {
   signedUrl?: string | null;
 };
 
+export type NoticeRecipient = {
+  userId: string;
+  fullName: string | null;
+  email: string | null;
+  readAt: string | null;
+};
+
+export type NoticeDetails = Notice & {
+  recipients: NoticeRecipient[];
+};
+
 export type TimeEntry = {
   id: string;
   tenantId: string;

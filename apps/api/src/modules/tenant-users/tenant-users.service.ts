@@ -1,6 +1,7 @@
 import { inferWebBaseUrl, webBaseUrlFromHeader } from "../../lib/web-base-url.js";
 import { supabaseAdmin } from "../../lib/supabase.js";
 import { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
+import type { TenantCompaniesService } from "../tenant-companies/tenant-companies.service.js";
 import { TenantUsersRepository } from "./tenant-users.repository.js";
 import type {
   EmployeeLookupResult,
@@ -13,7 +14,8 @@ import type { AppRole } from "../core-auth-tenant/core-auth-tenant.types.js";
 export class TenantUsersService {
   constructor(
     private readonly repository: TenantUsersRepository,
-    private readonly authTenantService: CoreAuthTenantService
+    private readonly authTenantService: CoreAuthTenantService,
+    private readonly tenantCompaniesService: TenantCompaniesService
   ) {}
 
   private requireAdminCompany(companyId: string | null | undefined): string {
@@ -532,6 +534,80 @@ export class TenantUsersService {
     return this.repository.findUserIdByCpfForTenant(tenantId, normalized);
   }
 
+  private async resolveBackofficeProfileCompanyId(input: {
+    tenantId: string;
+    scopeCompanyId: string | null | undefined;
+  }): Promise<string> {
+    if (input.scopeCompanyId) return input.scopeCompanyId;
+    const ids = await this.repository.listCompanyIdsForTenant(input.tenantId);
+    if (ids.length === 0) throw new Error("TENANT_HAS_NO_COMPANIES");
+    return ids[0]!;
+  }
+
+  private async upsertPrepostoManagementUser(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId: string;
+    fullName: string;
+    email: string;
+    cpf?: string | null;
+    phone?: string | null;
+  }): Promise<TenantUser> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager"
+    ]);
+    const okCo = await this.repository.companyBelongsToTenant(input.tenantId, input.companyId);
+    if (!okCo) throw new Error("TENANT_COMPANY_NOT_FOUND");
+
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedCpf = input.cpf?.replace(/\D/g, "") || undefined;
+    const normalizedPhone = input.phone?.trim() || undefined;
+
+    let targetUserId = await this.repository.findUserIdByEmail(normalizedEmail);
+    if (!targetUserId) {
+      targetUserId = await this.repository.inviteUserByEmail({
+        email: normalizedEmail,
+        fullName: input.fullName
+      });
+    }
+
+    await this.repository.upsertEmployeeInTenant({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      userId: targetUserId,
+      fullName: input.fullName,
+      email: normalizedEmail,
+      cpf: normalizedCpf ?? null,
+      phone: normalizedPhone ?? null
+    });
+
+    await this.tenantCompaniesService.setPreposto({
+      userId: input.actorUserId,
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      prepostoUserId: targetUserId
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.preposto_user.upserted",
+      resourceType: "tenant_user",
+      resourceId: targetUserId,
+      result: "success",
+      metadata: {
+        email: normalizedEmail
+      }
+    });
+
+    const linked = await this.repository.getUserInTenant(input.tenantId, targetUserId, input.companyId);
+    if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
+    return linked;
+  }
+
   async upsertBackofficeUser(input: {
     tenantId: string;
     actorUserId: string;
@@ -541,10 +617,31 @@ export class TenantUsersService {
     role: AppRole;
     cpf?: string;
     phone?: string;
+    prepostoCompanyId?: string | null;
   }): Promise<TenantUser> {
+    if (input.role === "preposto") {
+      const target =
+        (input.prepostoCompanyId && String(input.prepostoCompanyId).trim()) ||
+        (input.companyId && String(input.companyId).trim()) ||
+        null;
+      if (!target) throw new Error("PREPOSTO_PROJECT_REQUIRED");
+      return this.upsertPrepostoManagementUser({
+        tenantId: input.tenantId,
+        actorUserId: input.actorUserId,
+        companyId: target,
+        fullName: input.fullName,
+        email: input.email,
+        cpf: input.cpf ?? null,
+        phone: input.phone ?? null
+      });
+    }
+
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, ["owner", "admin"]);
 
-    const companyId = this.requireAdminCompany(input.companyId);
+    const companyId = await this.resolveBackofficeProfileCompanyId({
+      tenantId: input.tenantId,
+      scopeCompanyId: input.companyId
+    });
 
     const allowedRoles = new Set<AppRole>(["admin", "manager", "analyst"]);
     if (!allowedRoles.has(input.role)) {
