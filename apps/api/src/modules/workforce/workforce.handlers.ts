@@ -40,11 +40,22 @@ const createNoticeSchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
   userId: z.string().uuid(),
-  title: z.string().min(3).max(200),
+  /** Títulos curtos ("RH", "Aviso") são comuns; mínimo 1 após trim (antes min(3) gerava 400 opaco em produção). */
+  title: z
+    .string()
+    .trim()
+    .min(1, { error: "Informe o título do comunicado." })
+    .max(200, { error: "O título pode ter no máximo 200 caracteres." }),
   // `message` vem do RichTextEditor (HTML). 5000 chars é baixo para comunicados reais.
-  message: z.string().min(3).max(100000),
+  message: z
+    .string()
+    .min(3, { error: "O comunicado deve ter pelo menos 3 caracteres." })
+    .max(100_000, { error: "O texto do comunicado excede o tamanho máximo permitido." }),
   target: z.enum(["all", "employee", "manager"]).default("all"),
-  recipientUserIds: z.array(z.string().uuid()).max(500).optional(),
+  recipientUserIds: z
+    .array(z.string().uuid({ error: "Um ou mais destinatários têm identificador inválido." }))
+    .max(20_000, { error: "No máximo 20000 destinatários por comunicado." })
+    .optional(),
   attachments: z
     .array(
       z.object({

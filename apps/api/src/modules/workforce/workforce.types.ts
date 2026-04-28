@@ -7,6 +7,7 @@ export type PaginatedResult<T> = {
 export type Notice = {
   id: string;
   tenantId: string;
+  companyId: string;
   title: string;
   message: string;
   target: "all" | "employee" | "manager";
