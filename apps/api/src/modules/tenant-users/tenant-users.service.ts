@@ -121,6 +121,7 @@ export class TenantUsersService {
     page: number;
     pageSize: number;
     includePurgedProfiles?: boolean;
+    includeAuthMeta?: boolean;
   }): Promise<PaginatedResult<TenantUser>> {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
@@ -133,8 +134,28 @@ export class TenantUsersService {
     return this.repository.listUsers({
       ...input,
       companyId: listCompanyId,
-      includePurgedProfiles: input.includePurgedProfiles === true
+      includePurgedProfiles: input.includePurgedProfiles === true,
+      includeAuthMeta: input.includeAuthMeta === true
     });
+  }
+
+  async bulkAccessMeta(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId?: string | null;
+    targetUserIds: string[];
+  }): Promise<{ items: Record<string, { email: string | null; lastSignInAt: string | null }> }> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+
+    const ids = Array.from(new Set((input.targetUserIds ?? []).filter(Boolean))).slice(0, 250);
+    const items = await this.repository.bulkAuthAccessMeta(ids);
+    return { items };
   }
 
   async updateUserStatus(input: {

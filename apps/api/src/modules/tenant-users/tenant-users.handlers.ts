@@ -10,7 +10,15 @@ const listUsersSchema = z.object({
   search: z.string().max(160).optional(),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(250).default(20),
-  includePurgedProfiles: z.boolean().optional()
+  includePurgedProfiles: z.boolean().optional(),
+  includeAuthMeta: z.boolean().optional()
+});
+
+const bulkAccessMetaSchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  targetUserIds: z.array(z.string().uuid()).min(1).max(250)
 });
 
 const updateStatusSchema = z.object({
@@ -78,6 +86,11 @@ export class TenantUsersHandlers {
   async listUsers(input: unknown) {
     const payload = listUsersSchema.parse(input);
     return this.service.listUsers(payload);
+  }
+
+  async bulkAccessMeta(input: unknown) {
+    const payload = bulkAccessMetaSchema.parse(input);
+    return this.service.bulkAccessMeta(payload);
   }
 
   async updateUserStatus(input: unknown) {

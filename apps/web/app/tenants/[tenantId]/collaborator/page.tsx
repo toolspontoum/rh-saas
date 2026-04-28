@@ -31,6 +31,7 @@ type EmployeeProfile = {
 
 type Paginated<T> = { items: T[] };
 type BulkEmployeeProfiles = { items: Record<string, EmployeeProfile> };
+type BulkAccessMeta = { items: Record<string, { email: string | null; lastSignInAt: string | null }> };
 
 const COLLABORATOR_DELETE_WARNING =
   "Excluir um colaborador é uma ação que não pode ser desfeita, ao prosseguir com a exclusão você irá apagar definitivamente todos os dados e registros desse colaborador.";
@@ -41,6 +42,7 @@ export default function CollaboratorListPage() {
 
   const [items, setItems] = useState<TenantUser[]>([]);
   const [profiles, setProfiles] = useState<Record<string, EmployeeProfile>>({});
+  const [accessMeta, setAccessMeta] = useState<Record<string, { email: string | null; lastSignInAt: string | null }>>({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "offboarded">("all");
   const [contractFilter, setContractFilter] = useState("all");
@@ -56,7 +58,8 @@ export default function CollaboratorListPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
+      // Carrega lista rapidamente (sem meta do Auth, que é cara).
+      const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100&includeAuthMeta=false`);
       const allUsers = data.items ?? [];
       const userIds = allUsers.map((u) => u.userId).filter(Boolean);
       let next: Record<string, EmployeeProfile> = {};
@@ -74,6 +77,22 @@ export default function CollaboratorListPage() {
       setProfiles(next);
       const collaborators = allUsers.filter((item) => item.roles.includes("employee") || Boolean(next[item.userId]));
       setItems(collaborators);
+
+      // Busca em paralelo os metadados de acesso (último login) só para os colaboradores da página.
+      const collaboratorIds = collaborators.map((c) => c.userId).filter(Boolean);
+      if (collaboratorIds.length > 0) {
+        try {
+          const meta = await apiFetch<BulkAccessMeta>(`/v1/tenants/${tenantId}/users/access-meta/bulk`, {
+            method: "POST",
+            body: JSON.stringify({ targetUserIds: collaboratorIds })
+          });
+          setAccessMeta(meta.items ?? {});
+        } catch {
+          setAccessMeta({});
+        }
+      } else {
+        setAccessMeta({});
+      }
       setError(null);
     } finally {
       setLoading(false);
@@ -247,10 +266,11 @@ export default function CollaboratorListPage() {
             <tbody>
               {filtered.map((item) => {
                 const profile = profiles[item.userId];
+                const meta = accessMeta[item.userId];
                 return (
                   <tr key={item.userId}>
                     <td>{item.fullName ?? "-"}</td>
-                    <td>{item.email ?? "-"}</td>
+                    <td>{item.email ?? meta?.email ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
                     <td>{item.phone ?? "-"}</td>
                     <td>{profile?.department ?? "-"}</td>
@@ -267,7 +287,7 @@ export default function CollaboratorListPage() {
                       )}
                     </td>
                     <td>
-                      {!item.lastSignInAt ? (
+                      {!(meta?.lastSignInAt ?? item.lastSignInAt) ? (
                         <div className="stack" style={{ gap: 6 }}>
                           <span className="muted" style={{ fontSize: "0.9em" }}>
                             Nunca acessou
@@ -276,14 +296,18 @@ export default function CollaboratorListPage() {
                             type="button"
                             className="btn secondary"
                             style={{ padding: "4px 10px", fontSize: "0.85rem" }}
-                            disabled={Boolean(item.dataPurgedAt) || !item.email || resendInviteUserId === item.userId}
+                            disabled={
+                              Boolean(item.dataPurgedAt) ||
+                              !(item.email ?? meta?.email) ||
+                              resendInviteUserId === item.userId
+                            }
                             onClick={() => void resendInvite(item.userId)}
                           >
                             {resendInviteUserId === item.userId ? "A enviar…" : "Reenviar convite"}
                           </button>
                         </div>
                       ) : (
-                        formatLastAccess(item.lastSignInAt)
+                        formatLastAccess(meta?.lastSignInAt ?? item.lastSignInAt)
                       )}
                     </td>
                     <td>

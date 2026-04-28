@@ -716,6 +716,35 @@ button.employer-card:hover {
   overflow-x: auto;
 }
 
+.notice-rich-content {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.notice-rich-content * {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.notice-rich-content img,
+.notice-rich-content video,
+.notice-rich-content iframe {
+  max-width: 100%;
+  height: auto;
+}
+
+.notice-rich-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 /*
  * Formulários / fluxos com Quill ou uploads: use `apply-flow-main` no <main> (com `container wide` na candidatura).
  * Rich text: envolver em `.job-detail-editor` (candidatura/vagas) ou `.notice-body-editor` (comunicados).
