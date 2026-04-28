@@ -52,9 +52,13 @@ export class CoreAuthTenantService {
     const { data, error } = await supabaseAdmin
       .from("tenant_companies")
       .select("tenant_id, id")
-      .eq("preposto_user_id", userId);
+      .eq("preposto_user_id", userId)
+      .order("id", { ascending: true });
     if (error) throw error;
-    const byTenant = new Map((data ?? [] as { tenant_id: string; id: string }[]).map((r) => [r.tenant_id, r.id]));
+    const byTenant = new Map<string, string>();
+    for (const r of (data ?? []) as { tenant_id: string; id: string }[]) {
+      if (!byTenant.has(r.tenant_id)) byTenant.set(r.tenant_id, r.id);
+    }
     return tenants.map((t) => ({
       ...t,
       prepostoCompanyId: byTenant.get(t.tenantId) ?? null
@@ -101,14 +105,15 @@ export class CoreAuthTenantService {
 
     let prepostoCompanyId: string | null = null;
     if (roles.includes("preposto")) {
-      const { data: preRow, error: preErr } = await supabaseAdmin
+      const { data: preRows, error: preErr } = await supabaseAdmin
         .from("tenant_companies")
         .select("id")
         .eq("tenant_id", tenantId)
         .eq("preposto_user_id", userId)
-        .maybeSingle();
+        .order("id", { ascending: true });
       if (preErr) throw preErr;
-      prepostoCompanyId = (preRow as { id: string } | null)?.id ?? null;
+      const ids = ((preRows ?? []) as { id: string }[]).map((r) => r.id);
+      prepostoCompanyId = ids[0] ?? null;
     }
 
     let resolvedEmail = emailFromToken;

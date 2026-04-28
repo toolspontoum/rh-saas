@@ -1619,7 +1619,8 @@ apiRouter.post("/v1/tenants/:tenantId/backoffice-users", requireAuth, async (req
       email: req.body?.email,
       role: req.body?.role,
       cpf: req.body?.cpf,
-      phone: req.body?.phone
+      phone: req.body?.phone,
+      prepostoCompanyId: req.body?.prepostoCompanyId ?? undefined
     });
     return res.status(200).json(result);
   } catch (error) {

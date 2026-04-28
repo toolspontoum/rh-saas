@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
@@ -9,6 +9,7 @@ import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
 import { formatCpf, formatPhoneBr, isValidCpf, isValidPhoneBr, onlyDigits } from "../../../../lib/br-format";
 import { roleLabel as toRoleLabel } from "../../../../lib/role-labels";
+import { getStoredTenantCompanyId } from "../../../../lib/tenant-company-scope";
 
 type TenantUser = {
   userId: string;
@@ -25,48 +26,73 @@ type Paginated<T> = {
   items: T[];
 };
 
-type BackofficeRole = "admin" | "manager" | "analyst";
+type TenantCompany = {
+  id: string;
+  name: string;
+  prepostoUserId?: string | null;
+};
 
-type NewBackofficeUserForm = {
+type MgmtRole = "admin" | "manager" | "analyst" | "preposto";
+
+type NewMgmtUserForm = {
   fullName: string;
   email: string;
-  role: BackofficeRole;
+  role: MgmtRole;
   cpf: string;
   phone: string;
+  prepostoCompanyId: string;
 };
 
 type PendingAction =
   | { type: "status"; userId: string; status: "active" | "inactive" | "offboarded" }
   | { type: "delete"; userId: string };
 
-const statusTabs: Array<{ label: string; value: "all" | "active" | "inactive" | "offboarded" }> = [
+type StatusTab = "all" | "active" | "inactive" | "offboarded" | "preposto";
+
+type PrepostoRow = TenantUser & {
+  assignmentCompanyId: string;
+  assignmentCompanyName: string;
+  rowKey: string;
+};
+
+const statusTabs: Array<{ label: string; value: StatusTab }> = [
   { label: "Todos", value: "all" },
   { label: "Ativos", value: "active" },
   { label: "Inativos", value: "inactive" },
-  { label: "Desligados", value: "offboarded" }
+  { label: "Desligados", value: "offboarded" },
+  { label: "Preposto", value: "preposto" }
 ];
 
-const backofficeRoleLabel: Record<BackofficeRole, string> = {
+const mgmtRoleLabel: Record<MgmtRole, string> = {
   admin: "Admin",
   manager: "RH",
-  analyst: "Analista"
+  analyst: "Analista",
+  preposto: "Preposto"
 };
 
-const formDefault: NewBackofficeUserForm = {
+const formDefault = (prepostoCompanyId: string): NewMgmtUserForm => ({
   fullName: "",
   email: "",
   role: "analyst",
   cpf: "",
-  phone: ""
-};
+  phone: "",
+  prepostoCompanyId
+});
+
+const isBackofficeMgmt = (user: TenantUser) =>
+  user.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
 
 export default function TenantUsersPage() {
   const params = useParams<{ tenantId: string }>();
-  const tenantId = params.tenantId;
+  const tenantId = params?.tenantId ?? "";
 
-  const [form, setForm] = useState<NewBackofficeUserForm>(formDefault);
+  const storedCompanyId = useMemo(() => getStoredTenantCompanyId(tenantId), [tenantId]);
+
+  const [form, setForm] = useState<NewMgmtUserForm>(() => formDefault(storedCompanyId ?? ""));
   const [items, setItems] = useState<TenantUser[]>([]);
-  const [statusTab, setStatusTab] = useState<"all" | "active" | "inactive" | "offboarded">("all");
+  const [prepostoRows, setPrepostoRows] = useState<PrepostoRow[]>([]);
+  const [companies, setCompanies] = useState<TenantCompany[]>([]);
+  const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [search, setSearch] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [reason, setReason] = useState("");
@@ -75,25 +101,77 @@ export default function TenantUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const isBackofficeUser = (user: TenantUser) =>
-    user.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
-
-  async function loadUsers() {
-    const q = new URLSearchParams({ page: "1", pageSize: "100" });
-    if (statusTab !== "all") q.set("status", statusTab);
-    if (search.trim()) q.set("search", search.trim());
-    const response = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}`);
-    setItems((response.items ?? []).filter(isBackofficeUser));
-  }
+  useEffect(() => {
+    setForm((f) => ({ ...f, prepostoCompanyId: storedCompanyId ?? f.prepostoCompanyId }));
+  }, [storedCompanyId]);
 
   useEffect(() => {
-    loadUsers().catch((err: Error) => setError(err.message));
-  }, [tenantId, statusTab, search]);
+    const onCompany = () => {
+      const id = getStoredTenantCompanyId(tenantId) ?? "";
+      setForm((f) => ({ ...f, prepostoCompanyId: id }));
+    };
+    window.addEventListener("vv-tenant-company-changed", onCompany);
+    return () => window.removeEventListener("vv-tenant-company-changed", onCompany);
+  }, [tenantId]);
+
+  const loadCompanies = useCallback(async () => {
+    const list = await apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`);
+    setCompanies(list ?? []);
+    return list ?? [];
+  }, [tenantId]);
+
+  const loadData = useCallback(async () => {
+    const q = new URLSearchParams({ page: "1", pageSize: "250" });
+    if (statusTab !== "all" && statusTab !== "preposto") q.set("status", statusTab);
+    if (search.trim()) q.set("search", search.trim());
+
+    if (statusTab === "preposto") {
+      const [co, response] = await Promise.all([
+        loadCompanies(),
+        apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}`)
+      ]);
+      const users = response.items ?? [];
+      const byId = new Map(users.map((u) => [u.userId, u]));
+      const sid = getStoredTenantCompanyId(tenantId);
+      const expanded: PrepostoRow[] = [];
+      for (const c of co) {
+        if (!c.prepostoUserId) continue;
+        if (sid && c.id !== sid) continue;
+        const u = byId.get(c.prepostoUserId);
+        if (!u) continue;
+        expanded.push({
+          ...u,
+          assignmentCompanyId: c.id,
+          assignmentCompanyName: c.name,
+          rowKey: `${u.userId}-${c.id}`
+        });
+      }
+      setPrepostoRows(expanded);
+      setItems([]);
+      return;
+    }
+
+    const response = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}`);
+    setItems((response.items ?? []).filter(isBackofficeMgmt));
+    setPrepostoRows([]);
+  }, [tenantId, statusTab, search, loadCompanies]);
+
+  useEffect(() => {
+    loadData().catch((err: Error) => setError(err.message));
+  }, [loadData]);
+
+  useEffect(() => {
+    if (form.role !== "preposto") return;
+    if (storedCompanyId) return;
+    loadCompanies().catch(() => {});
+  }, [form.role, storedCompanyId, loadCompanies]);
 
   const selectedUser = useMemo(() => {
     if (!pending) return null;
-    return items.find((item) => item.userId === pending.userId) ?? null;
-  }, [pending, items]);
+    const fromList = items.find((item) => item.userId === pending.userId);
+    if (fromList) return fromList;
+    return prepostoRows.find((item) => item.userId === pending.userId) ?? null;
+  }, [pending, items, prepostoRows]);
 
   function validateForm(): string | null {
     if (!form.fullName.trim()) return "Informe o nome completo.";
@@ -103,6 +181,10 @@ export default function TenantUsersPage() {
     }
     if (form.phone.trim() && !isValidPhoneBr(form.phone)) {
       return "Telefone invalido. Use DDD + 8 ou 9 digitos.";
+    }
+    if (form.role === "preposto") {
+      const pc = storedCompanyId ?? form.prepostoCompanyId.trim();
+      if (!pc) return "Selecione a empresa/projeto do preposto (painel lateral ou lista abaixo).";
     }
     return null;
   }
@@ -117,6 +199,10 @@ export default function TenantUsersPage() {
       return;
     }
 
+    const prepostoCompanyId =
+      form.role === "preposto" ? (storedCompanyId ?? form.prepostoCompanyId.trim()) || undefined : undefined;
+    const createdAsPreposto = form.role === "preposto";
+
     setSubmitting(true);
     try {
       await apiFetch(`/v1/tenants/${tenantId}/backoffice-users`, {
@@ -126,12 +212,17 @@ export default function TenantUsersPage() {
           email: form.email.trim().toLowerCase(),
           role: form.role,
           cpf: onlyDigits(form.cpf) || undefined,
-          phone: onlyDigits(form.phone) || undefined
+          phone: onlyDigits(form.phone) || undefined,
+          ...(createdAsPreposto && prepostoCompanyId ? { prepostoCompanyId } : {})
         })
       });
-      setForm(formDefault);
-      setOkMsg("Usuario de gestao salvo com sucesso.");
-      await loadUsers();
+      setForm(formDefault(storedCompanyId ?? ""));
+      setOkMsg(
+        createdAsPreposto
+          ? "Preposto convidado e vinculado ao projeto."
+          : "Usuario de gestao salvo com sucesso."
+      );
+      await loadData();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -168,13 +259,18 @@ export default function TenantUsersPage() {
 
       setPending(null);
       setReason("");
-      await loadUsers();
+      await loadData();
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusyUserId(null);
     }
   }
+
+  const tableRows: Array<TenantUser & { assignmentCompanyName?: string; rowKey: string }> =
+    statusTab === "preposto"
+      ? prepostoRows
+      : items.map((u) => ({ ...u, rowKey: u.userId }));
 
   return (
     <main className="container wide stack" style={{ margin: 0 }}>
@@ -184,8 +280,17 @@ export default function TenantUsersPage() {
       {okMsg ? <p>{okMsg}</p> : null}
 
       <form className="card stack" onSubmit={handleCreate}>
-        <h3>Novo usuario de backoffice</h3>
-        <p className="muted">Cadastro exclusivo para perfis internos: Admin, RH e Analista.</p>
+        <h3>Novo usuario de gestao</h3>
+        <p className="muted">
+          Perfis internos: Admin, RH, Analista ou Preposto. O preposto fica vinculado ao contrato (empresa/projeto)
+          indicado.
+        </p>
+        {!storedCompanyId && form.role !== "preposto" ? (
+          <p className="muted small">
+            Com <strong>Empresa / projeto</strong> em <strong>Todas</strong>, o convite vale para todo o assinante; o
+            cadastro base no sistema usa o primeiro projeto da lista (ordenacao interna).
+          </p>
+        ) : null}
 
         <div className="form-grid form-grid-2">
           <label>
@@ -204,11 +309,19 @@ export default function TenantUsersPage() {
             Perfil de acesso
             <select
               value={form.role}
-              onChange={(e) => setForm((c) => ({ ...c, role: e.target.value as BackofficeRole }))}
+              onChange={(e) => {
+                const role = e.target.value as MgmtRole;
+                setForm((c) => ({
+                  ...c,
+                  role,
+                  prepostoCompanyId: storedCompanyId ?? c.prepostoCompanyId
+                }));
+              }}
             >
               <option value="admin">Admin</option>
               <option value="manager">RH</option>
               <option value="analyst">Analista</option>
+              <option value="preposto">Preposto</option>
             </select>
           </label>
           <label>
@@ -223,6 +336,32 @@ export default function TenantUsersPage() {
             />
           </label>
         </div>
+
+        {form.role === "preposto" && !storedCompanyId ? (
+          <label className="stack">
+            Empresa / projeto do preposto
+            <select
+              value={form.prepostoCompanyId}
+              onChange={(e) => setForm((c) => ({ ...c, prepostoCompanyId: e.target.value }))}
+              style={{ color: "#000" }}
+            >
+              <option value="">— Selecione —</option>
+              {companies.map((c) => (
+                <option key={c.id} value={c.id} style={{ color: "#000" }}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">
+              Se ja houver uma empresa selecionada no menu lateral, o preposto sera vinculado a ela automaticamente.
+            </span>
+          </label>
+        ) : form.role === "preposto" && storedCompanyId ? (
+          <p className="muted small">
+            Preposto sera vinculado a empresa/projeto selecionada no menu lateral:{" "}
+            <strong>{companies.find((c) => c.id === storedCompanyId)?.name ?? storedCompanyId}</strong>
+          </p>
+        ) : null}
 
         <button type="submit" disabled={submitting}>
           {submitting ? "Salvando..." : "Salvar usuario"}
@@ -246,8 +385,11 @@ export default function TenantUsersPage() {
       </div>
 
       <div className="card table-wrap">
-        {items.length === 0 ? (
-          <EmptyState title="Sem usuarios de gestao" description="Nenhum usuario encontrado para os filtros atuais." />
+        {tableRows.length === 0 ? (
+          <EmptyState
+            title={statusTab === "preposto" ? "Sem prepostos" : "Sem usuarios de gestao"}
+            description="Nenhum usuario encontrado para os filtros atuais."
+          />
         ) : (
           <table className="table">
             <thead>
@@ -256,27 +398,32 @@ export default function TenantUsersPage() {
                 <th>E-mail</th>
                 <th>CPF</th>
                 <th>Status</th>
+                {statusTab === "preposto" ? <th>Empresa / projeto</th> : null}
                 <th>Perfis</th>
                 <th>Acoes</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => {
+              {tableRows.map((item) => {
                 const roles = item.roles
-                  .filter((role) => ["owner", "admin", "manager", "analyst"].includes(role))
+                  .filter((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role))
                   .map((role) => {
-                    if (role === "manager") return backofficeRoleLabel.manager;
-                    if (role === "admin") return backofficeRoleLabel.admin;
-                    if (role === "analyst") return backofficeRoleLabel.analyst;
+                    if (role === "manager") return mgmtRoleLabel.manager;
+                    if (role === "admin") return mgmtRoleLabel.admin;
+                    if (role === "analyst") return mgmtRoleLabel.analyst;
+                    if (role === "preposto") return mgmtRoleLabel.preposto;
                     return toRoleLabel(role);
                   });
 
                 return (
-                  <tr key={item.userId}>
+                  <tr key={item.rowKey}>
                     <td>{item.fullName ?? "-"}</td>
                     <td>{item.email ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
                     <td>{item.status === "active" ? "Ativo" : item.status === "inactive" ? "Inativo" : "Desligado"}</td>
+                    {statusTab === "preposto" ? (
+                      <td>{(item as PrepostoRow).assignmentCompanyName ?? "-"}</td>
+                    ) : null}
                     <td>{roles.join(", ") || "-"}</td>
                     <td>
                       <div className="row">

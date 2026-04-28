@@ -300,7 +300,7 @@ export default function NoticesPage() {
                     <button className="secondary">Ver detalhes</button>
                   </Link>
                   {canPublishNotices ? (
-                    {showArchived ? (
+                    showArchived ? (
                       <>
                         <button
                           className="secondary"
@@ -348,7 +348,7 @@ export default function NoticesPage() {
                       >
                         Arquivar
                       </button>
-                    )}
+                    )
                   ) : null}
                 </div>
               </div>
