@@ -163,18 +163,16 @@ export class WorkforceService {
     });
     if (!notice) throw new Error("NOTICE_NOT_FOUND");
 
+    const audienceCompanyId = notice.companyId;
     const recipientsFromNotice = (notice.recipientUserIds ?? []).filter(Boolean);
     const recipientUserIds =
       recipientsFromNotice.length > 0
         ? Array.from(new Set(recipientsFromNotice))
-        : notice.target === "manager"
-          ? await this.repository.listActiveTenantUserIdsByRoles({ tenantId: input.tenantId, roles: ["manager"] })
-          : notice.target === "employee"
-            ? await this.repository.listActiveTenantUserIdsByRoles({
-                tenantId: input.tenantId,
-                roles: ["employee", "viewer", "candidate"]
-              })
-            : await this.repository.listActiveTenantUserIdsByRoles({ tenantId: input.tenantId });
+        : await this.repository.listUserIdsForNoticeAudience({
+            tenantId: input.tenantId,
+            companyId: audienceCompanyId,
+            target: notice.target
+          });
 
     const [attachments, readRows, profiles] = await Promise.all([
       this.repository.listNoticeAttachments(input.tenantId, [notice.id]),
@@ -185,7 +183,7 @@ export class WorkforceService {
       }),
       this.repository.listTenantUserProfilesLite({
         tenantId: input.tenantId,
-        companyId,
+        companyId: audienceCompanyId,
         userIds: recipientUserIds
       })
     ]);

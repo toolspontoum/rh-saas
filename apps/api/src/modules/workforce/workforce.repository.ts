@@ -29,6 +29,7 @@ import type {
 type NoticeRow = {
   id: string;
   tenant_id: string;
+  company_id: string;
   title: string;
   message: string;
   target: Notice["target"];
@@ -304,6 +305,7 @@ type CandidateSourceRow = {
 const mapNotice = (row: NoticeRow): Notice => ({
   id: row.id,
   tenantId: row.tenant_id,
+  companyId: row.company_id,
   title: row.title,
   message: row.message,
   target: row.target,
@@ -545,6 +547,16 @@ function withCompany<T extends { eq: (col: string, val: string) => T }>(
   return companyId ? query.eq("company_id", companyId) : query;
 }
 
+/** PostgREST / URL limits: avoid huge `.in("user_id", …)` lists in one request. */
+const SUPABASE_IN_CHUNK_SIZE = 120;
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const uniq = Array.from(new Set(ids.filter(Boolean)));
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniq.length; i += size) chunks.push(uniq.slice(i, i + size));
+  return chunks;
+}
+
 export class WorkforceRepository {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -568,14 +580,18 @@ export class WorkforceRepository {
   }): Promise<NoticeReadByUserRow[]> {
     const ids = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
     if (ids.length === 0) return [];
-    const { data, error } = await this.db
-      .from("notice_reads")
-      .select("user_id,read_at")
-      .eq("tenant_id", input.tenantId)
-      .eq("notice_id", input.noticeId)
-      .in("user_id", ids);
-    if (error) throw error;
-    return (data ?? []) as NoticeReadByUserRow[];
+    const out: NoticeReadByUserRow[] = [];
+    for (const chunk of chunkIds(ids, SUPABASE_IN_CHUNK_SIZE)) {
+      const { data, error } = await this.db
+        .from("notice_reads")
+        .select("user_id,read_at")
+        .eq("tenant_id", input.tenantId)
+        .eq("notice_id", input.noticeId)
+        .in("user_id", chunk);
+      if (error) throw error;
+      out.push(...((data ?? []) as NoticeReadByUserRow[]));
+    }
+    return out;
   }
 
   async listTenantUserProfilesLite(input: {
@@ -585,21 +601,23 @@ export class WorkforceRepository {
   }): Promise<Record<string, { fullName: string | null; email: string | null }>> {
     const ids = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
     if (ids.length === 0) return {};
-    let query = this.db
-      .from("tenant_user_profiles")
-      .select("user_id,full_name,personal_email")
-      .eq("tenant_id", input.tenantId)
-      .in("user_id", ids);
-    if (input.companyId) query = query.eq("company_id", input.companyId);
-    const { data, error } = await query;
-    if (error) throw error;
     const out: Record<string, { fullName: string | null; email: string | null }> = {};
-    for (const row of (data ?? []) as TenantUserProfileLiteRow[]) {
-      if (!row.user_id) continue;
-      out[row.user_id] = {
-        fullName: row.full_name ?? null,
-        email: row.personal_email ?? null
-      };
+    for (const chunk of chunkIds(ids, SUPABASE_IN_CHUNK_SIZE)) {
+      let query = this.db
+        .from("tenant_user_profiles")
+        .select("user_id,full_name,personal_email")
+        .eq("tenant_id", input.tenantId)
+        .in("user_id", chunk);
+      if (input.companyId) query = query.eq("company_id", input.companyId);
+      const { data, error } = await query;
+      if (error) throw error;
+      for (const row of (data ?? []) as TenantUserProfileLiteRow[]) {
+        if (!row.user_id) continue;
+        out[row.user_id] = {
+          fullName: row.full_name ?? null,
+          email: row.personal_email ?? null
+        };
+      }
     }
     return out;
   }
@@ -620,6 +638,50 @@ export class WorkforceRepository {
     if (error) throw error;
     const ids = (data ?? []) as Array<{ user_id: string }>;
     return Array.from(new Set(ids.map((r) => r.user_id).filter(Boolean)));
+  }
+
+  /**
+   * Destinatários implícitos do comunicado: perfis ativos na empresa do comunicado,
+   * filtrados por `target` (papéis no tenant). Evita listar todo o tenant (504).
+   */
+  async listUserIdsForNoticeAudience(input: {
+    tenantId: string;
+    companyId: string;
+    target: Notice["target"];
+  }): Promise<string[]> {
+    const { data: profRows, error: profErr } = await this.db
+      .from("tenant_user_profiles")
+      .select("user_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("company_id", input.companyId)
+      .eq("status", "active")
+      .is("data_purged_at", null);
+    if (profErr) throw profErr;
+    const profileIds = Array.from(
+      new Set((profRows ?? []).map((r: { user_id: string }) => r.user_id).filter(Boolean))
+    );
+    if (profileIds.length === 0) return [];
+
+    if (input.target === "all") return profileIds;
+
+    const rolesFilter =
+      input.target === "manager" ? ["manager"] : (["employee", "viewer", "candidate"] as string[]);
+
+    const allowed = new Set<string>();
+    for (const chunk of chunkIds(profileIds, SUPABASE_IN_CHUNK_SIZE)) {
+      const { data: roleRows, error: roleErr } = await this.db
+        .from("user_tenant_roles")
+        .select("user_id")
+        .eq("tenant_id", input.tenantId)
+        .eq("is_active", true)
+        .in("role", rolesFilter)
+        .in("user_id", chunk);
+      if (roleErr) throw roleErr;
+      for (const r of (roleRows ?? []) as Array<{ user_id: string }>) {
+        if (r.user_id) allowed.add(r.user_id);
+      }
+    }
+    return profileIds.filter((id) => allowed.has(id));
   }
 
   async getTenantUserCompanyId(tenantId: string, userId: string): Promise<string | null> {

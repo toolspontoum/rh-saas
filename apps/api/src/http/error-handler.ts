@@ -496,10 +496,13 @@ const knownErrors = new Map<string, ApiErrorShape>([
 
 export function toHttpError(error: unknown): ApiErrorShape {
   if (error instanceof ZodError) {
+    const first = error.issues[0];
+    const detail =
+      typeof first?.message === "string" && first.message.trim().length > 0 ? first.message.trim() : "";
     return {
       status: 400,
       code: "INVALID_INPUT",
-      message: "Payload da requisicao invalido."
+      message: detail.length > 0 ? detail : "Payload da requisicao invalido."
     };
   }
 
