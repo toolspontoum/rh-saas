@@ -5,6 +5,8 @@ import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js
 import type {
   EmployeeProfile,
   Notice,
+  NoticeDetails,
+  NoticeRecipient,
   NoticeAttachment,
   OnboardingRequirement,
   OnboardingSubmission,
@@ -53,9 +55,20 @@ type NoticeReadRow = {
   read_at: string;
 };
 
+type NoticeReadByUserRow = {
+  user_id: string;
+  read_at: string;
+};
+
 type NoticeReadCountRow = {
   notice_id: string;
   count: number;
+};
+
+type TenantUserProfileLiteRow = {
+  user_id: string;
+  full_name: string | null;
+  personal_email: string | null;
 };
 
 type TimeEntryRow = {
@@ -534,6 +547,80 @@ function withCompany<T extends { eq: (col: string, val: string) => T }>(
 
 export class WorkforceRepository {
   constructor(private readonly db: SupabaseClient) {}
+
+  async getNoticeById(input: {
+    tenantId: string;
+    companyId?: string | null;
+    noticeId: string;
+  }): Promise<Notice | null> {
+    const { data, error } = await withCompany(
+      this.db.from("notices").select("*").eq("tenant_id", input.tenantId).eq("id", input.noticeId),
+      input.companyId
+    ).maybeSingle();
+    if (error) throw error;
+    return data ? mapNotice(data as NoticeRow) : null;
+  }
+
+  async listNoticeReadsForNotice(input: {
+    tenantId: string;
+    noticeId: string;
+    userIds: string[];
+  }): Promise<NoticeReadByUserRow[]> {
+    const ids = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
+    if (ids.length === 0) return [];
+    const { data, error } = await this.db
+      .from("notice_reads")
+      .select("user_id,read_at")
+      .eq("tenant_id", input.tenantId)
+      .eq("notice_id", input.noticeId)
+      .in("user_id", ids);
+    if (error) throw error;
+    return (data ?? []) as NoticeReadByUserRow[];
+  }
+
+  async listTenantUserProfilesLite(input: {
+    tenantId: string;
+    companyId?: string | null;
+    userIds: string[];
+  }): Promise<Record<string, { fullName: string | null; email: string | null }>> {
+    const ids = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
+    if (ids.length === 0) return {};
+    let query = this.db
+      .from("tenant_user_profiles")
+      .select("user_id,full_name,personal_email")
+      .eq("tenant_id", input.tenantId)
+      .in("user_id", ids);
+    if (input.companyId) query = query.eq("company_id", input.companyId);
+    const { data, error } = await query;
+    if (error) throw error;
+    const out: Record<string, { fullName: string | null; email: string | null }> = {};
+    for (const row of (data ?? []) as TenantUserProfileLiteRow[]) {
+      if (!row.user_id) continue;
+      out[row.user_id] = {
+        fullName: row.full_name ?? null,
+        email: row.personal_email ?? null
+      };
+    }
+    return out;
+  }
+
+  async listActiveTenantUserIdsByRoles(input: {
+    tenantId: string;
+    roles?: string[];
+  }): Promise<string[]> {
+    let query = this.db
+      .from("user_tenant_roles")
+      .select("user_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("is_active", true);
+    if (input.roles && input.roles.length > 0) {
+      query = query.in("role", input.roles);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const ids = (data ?? []) as Array<{ user_id: string }>;
+    return Array.from(new Set(ids.map((r) => r.user_id).filter(Boolean)));
+  }
 
   async getTenantUserCompanyId(tenantId: string, userId: string): Promise<string | null> {
     const { data, error } = await this.db

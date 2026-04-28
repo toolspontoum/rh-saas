@@ -29,6 +29,13 @@ const listNoticesSchema = z.object({
   onlyArchived: booleanFromQuery.default(false)
 });
 
+const getNoticeDetailsSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  noticeId: z.string().uuid()
+});
+
 const createNoticeSchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
@@ -352,6 +359,11 @@ export class WorkforceHandlers {
   async listNotices(input: unknown) {
     const payload = listNoticesSchema.parse(input);
     return this.service.listNotices(payload);
+  }
+
+  async getNoticeDetails(input: unknown) {
+    const payload = getNoticeDetailsSchema.parse(input);
+    return this.service.getNoticeDetails(payload);
   }
 
   async createNotice(input: unknown) {

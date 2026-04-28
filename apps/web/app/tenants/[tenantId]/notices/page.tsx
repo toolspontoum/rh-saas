@@ -48,6 +48,19 @@ type EmployeeProfile = {
 
 type Paginated<T> = { items: T[] };
 
+function htmlToPlainText(html: string): string {
+  if (typeof window === "undefined") return html;
+  const doc = new DOMParser().parseFromString(html ?? "", "text/html");
+  const text = doc.body?.textContent ?? "";
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(text: string, maxChars: number): string {
+  const normalized = (text ?? "").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
 export default function NoticesPage() {
   const params = useParams<{ tenantId: string }>();
   const searchParams = useSearchParams();
@@ -256,7 +269,9 @@ export default function NoticesPage() {
           filtered.map((item) => (
             <div className="card" key={item.id}>
               <h4>{item.title}</h4>
-              <div className="notice-rich-content" dangerouslySetInnerHTML={{ __html: item.message }} />
+              <p style={{ marginTop: 6, marginBottom: 0 }}>
+                {truncateText(htmlToPlainText(item.message ?? ""), 150) || "-"}
+              </p>
               {(item.attachments ?? []).length > 0 ? (
                 <div className="stack" style={{ marginTop: 12 }}>
                   <strong>Anexos</strong>
@@ -280,8 +295,11 @@ export default function NoticesPage() {
                     ? ` | Destinatários específicos: ${item.recipientUserIds.length}`
                     : ""}
                 </p>
-                {canPublishNotices ? (
-                  <div className="row">
+                <div className="row">
+                  <Link href={`/tenants/${tenantId}/notices/${item.id}`}>
+                    <button className="secondary">Ver detalhes</button>
+                  </Link>
+                  {canPublishNotices ? (
                     {showArchived ? (
                       <>
                         <button
@@ -331,25 +349,8 @@ export default function NoticesPage() {
                         Arquivar
                       </button>
                     )}
-                  </div>
-                ) : !item.readAt ? (
-                  <button
-                    className="secondary"
-                    onClick={async () => {
-                      setError(null);
-                      setOkMsg(null);
-                      try {
-                        await apiFetch(`/v1/tenants/${tenantId}/notices/${item.id}/read`, { method: "POST" });
-                        setOkMsg("Comunicado marcado como lido.");
-                        await loadData();
-                      } catch (err) {
-                        setError((err as Error).message);
-                      }
-                    }}
-                  >
-                    Marcar como lido
-                  </button>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </div>
           ))

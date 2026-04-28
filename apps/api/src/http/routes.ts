@@ -1724,6 +1724,21 @@ apiRouter.get("/v1/tenants/:tenantId/notices", requireAuth, async (req, res) => 
   }
 });
 
+apiRouter.get("/v1/tenants/:tenantId/notices/:noticeId", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.getNoticeDetails({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      noticeId: req.params.noticeId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.post("/v1/tenants/:tenantId/notices/:noticeId/read", requireAuth, async (req, res) => {
   try {
     const result = await workforceHandlers.markNoticeRead({
