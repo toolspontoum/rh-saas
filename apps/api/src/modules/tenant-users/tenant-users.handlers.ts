@@ -67,9 +67,10 @@ const upsertBackofficeUserSchema = z.object({
   companyId: z.string().uuid().nullable().optional(),
   fullName: z.string().min(3).max(160),
   email: z.string().email(),
-  role: z.enum(["admin", "manager", "analyst"]),
+  role: z.enum(["admin", "manager", "analyst", "preposto"]),
   cpf: z.string().max(20).optional(),
-  phone: z.string().max(30).optional()
+  phone: z.string().max(30).optional(),
+  prepostoCompanyId: z.string().uuid().nullable().optional()
 });
 
 const targetUserActionSchema = z.object({

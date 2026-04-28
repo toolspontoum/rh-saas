@@ -124,15 +124,16 @@ export class TenantCompaniesRepository {
     return Boolean(data);
   }
 
-  /** Remove o utilizador como preposto de outros contratos no mesmo tenant (exceto `exceptCompanyId`). */
-  async clearPrepostoUserExceptCompany(tenantId: string, userId: string, exceptCompanyId: string): Promise<void> {
-    const { error } = await this.db
-      .from("tenant_companies")
-      .update({ preposto_user_id: null })
+  /** Utilizador com qualquer perfil no tenant (para vincular preposto a mais de um projeto). */
+  async userBelongsToTenant(tenantId: string, userId: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .from("user_tenant_roles")
+      .select("user_id")
       .eq("tenant_id", tenantId)
-      .eq("preposto_user_id", userId)
-      .neq("id", exceptCompanyId);
+      .eq("user_id", userId)
+      .limit(1);
     if (error) throw error;
+    return (data ?? []).length > 0;
   }
 
   async setPrepostoUserId(tenantId: string, companyId: string, prepostoUserId: string | null): Promise<TenantCompanyRow> {

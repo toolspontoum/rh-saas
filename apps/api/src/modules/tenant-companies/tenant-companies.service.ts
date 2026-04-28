@@ -112,13 +112,8 @@ export class TenantCompaniesService {
     const previousId = existing.preposto_user_id ?? null;
 
     if (input.prepostoUserId) {
-      const ok = await this.repository.userHasProfileInCompany(
-        input.tenantId,
-        input.companyId,
-        input.prepostoUserId
-      );
-      if (!ok) throw new Error("USER_NOT_IN_COMPANY");
-      await this.repository.clearPrepostoUserExceptCompany(input.tenantId, input.prepostoUserId, input.companyId);
+      const ok = await this.repository.userBelongsToTenant(input.tenantId, input.prepostoUserId);
+      if (!ok) throw new Error("USER_NOT_IN_TENANT");
     }
 
     const row = await this.repository.setPrepostoUserId(input.tenantId, input.companyId, input.prepostoUserId);

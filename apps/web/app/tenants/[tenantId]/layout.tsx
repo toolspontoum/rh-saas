@@ -226,11 +226,6 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         section: "backoffice"
       });
       links.push({ label: "Auditoria", href: `/tenants/${tenantId}/audit`, section: "backoffice" });
-      links.push({
-        label: "Preposto",
-        href: `/tenants/${tenantId}/preposto`,
-        section: "backoffice"
-      });
     }
 
     return links;
