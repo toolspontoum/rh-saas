@@ -13,6 +13,7 @@
     "./run-tenant-users-get": "./src/run-tenant-users-get.ts",
     "./run-tenant-data-gets": "./src/run-tenant-data-gets.ts",
     "./run-tenant-writes": "./src/run-tenant-writes.ts",
+    "./run-tenant-payslips-writes": "./src/run-tenant-payslips-writes.ts",
     "./run-tenant-recruitment-writes": "./src/run-tenant-recruitment-writes.ts",
     "./run-candidate-me-writes": "./src/run-candidate-me-writes.ts",
     "./run-employee-prereg": "./src/run-employee-prereg.ts",
