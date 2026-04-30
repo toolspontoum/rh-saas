@@ -44,7 +44,7 @@ export class EmployeePreregService {
   }
 
   private async assertManager(actorUserId: string, tenantId: string): Promise<void> {
-    await this.authTenantService.assertUserHasAnyRole(actorUserId, tenantId, ["owner", "admin", "manager"]);
+    await this.authTenantService.assertUserHasAnyRole(actorUserId, tenantId, ["owner", "admin", "manager", "preposto"]);
   }
 
   private parsePayload(raw: Record<string, unknown>): EmployeePreregPayloadDto {
