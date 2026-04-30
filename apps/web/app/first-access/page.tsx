@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { clearToken, setToken } from "../../lib/auth";
+import { describeMissingRecoverySession, establishSupabaseRedirectSession } from "../../lib/supabase-redirect-session";
 import { supabase } from "../../lib/supabase";
 
 export default function FirstAccessPage() {
@@ -13,6 +14,7 @@ export default function FirstAccessPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [preparing, setPreparing] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
@@ -22,47 +24,25 @@ export default function FirstAccessPage() {
       setError(null);
 
       try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
-        const tokenHash = url.searchParams.get("token_hash");
-        const typeRaw = url.searchParams.get("type");
-
-        if (code) {
-          const exchanged = await supabase.auth.exchangeCodeForSession(code);
-          if (exchanged.error) {
-            setError(exchanged.error.message);
-            setPreparing(false);
-            return;
-          }
-        } else if (tokenHash && typeRaw) {
-          const type =
-            typeRaw === "invite" ||
-            typeRaw === "recovery" ||
-            typeRaw === "signup" ||
-            typeRaw === "magiclink" ||
-            typeRaw === "email_change"
-              ? typeRaw
-              : null;
-          if (!type) {
-            setError("Link inválido. Solicite um novo e-mail para criar sua senha.");
-            setPreparing(false);
-            return;
-          }
-
-          const verified = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-          if (verified.error) {
-            setError(verified.error.message);
-            setPreparing(false);
-            return;
-          }
+        const href = window.location.href;
+        const { session, setupError } = await establishSupabaseRedirectSession(supabase, href);
+        if (setupError) {
+          setSessionReady(false);
+          setError(setupError.message);
+          return;
         }
-
-        const sessionResponse = await supabase.auth.getSession();
-        const token = sessionResponse.data.session?.access_token;
+        if (!session) {
+          setSessionReady(false);
+          setError(describeMissingRecoverySession(href));
+          return;
+        }
+        setSessionReady(true);
+        const token = session.access_token;
         if (token) {
           setToken(token);
         }
       } catch (err) {
+        setSessionReady(false);
         setError((err as Error).message);
       } finally {
         setPreparing(false);
@@ -138,7 +118,7 @@ export default function FirstAccessPage() {
           {error ? <p className="error">{error}</p> : null}
           {okMsg ? <p>{okMsg}</p> : null}
 
-          <button type="submit" disabled={loading || preparing}>
+          <button type="submit" disabled={loading || preparing || !sessionReady}>
             {loading ? "Salvando..." : "Criar senha"}
           </button>
           <button className="secondary" type="button" onClick={() => router.push("/")}>
