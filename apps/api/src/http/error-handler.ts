@@ -140,6 +140,14 @@ const knownErrors = new Map<string, ApiErrorShape>([
       message: "Nao foi possivel vincular documentos ao usuario. Tente novamente em instantes ou entre em contato com o suporte."
     }
   ],
+  [
+    "SHIFT_ASSIGNMENT_NOT_FOUND",
+    {
+      status: 404,
+      code: "SHIFT_ASSIGNMENT_NOT_FOUND",
+      message: "Vinculo de jornada nao encontrado ou ja foi encerrado."
+    }
+  ],
   ["INVALID_TIME_ENTRY_SEQUENCE", { status: 400, code: "INVALID_TIME_ENTRY_SEQUENCE", message: "Sequencia de batida de ponto invalida para o momento atual." }],
   [
     "ONCALL_TARGET_NOT_EMPLOYEE",

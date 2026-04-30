@@ -205,6 +205,16 @@ export type ShiftAssignment = {
   updatedAt: string;
 };
 
+/** Vínculo ativo com nome do modelo (lista de vinculação em massa). */
+export type ShiftAssignmentListItem = {
+  id: string;
+  userId: string;
+  shiftTemplateId: string;
+  templateName: string;
+  startsAt: string;
+  endsAt: string | null;
+};
+
 export type OnboardingRequirement = {
   id: string;
   tenantId: string;

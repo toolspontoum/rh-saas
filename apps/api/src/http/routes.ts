@@ -2311,6 +2311,35 @@ apiRouter.patch("/v1/tenants/:tenantId/shift-templates/:templateId", requireAuth
   }
 });
 
+apiRouter.get("/v1/tenants/:tenantId/shift-assignments", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.listActiveShiftAssignments({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.delete("/v1/tenants/:tenantId/shift-assignments/:assignmentId", requireAuth, async (req, res) => {
+  try {
+    await workforceHandlers.deactivateShiftAssignment({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      assignmentId: req.params.assignmentId
+    });
+    return res.status(204).send();
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.post("/v1/tenants/:tenantId/shift-assignments", requireAuth, async (req, res) => {
   try {
     const result = await workforceHandlers.assignShiftTemplate({

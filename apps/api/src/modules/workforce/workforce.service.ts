@@ -19,6 +19,7 @@ import type {
   OncallShiftWithEvents,
   PaginatedResult,
   ShiftAssignment,
+  ShiftAssignmentListItem,
   ShiftTemplate,
   TenantWorkRule,
   TimeAdjustmentRequest,
@@ -1875,6 +1876,44 @@ export class WorkforceService {
       startsAt: input.startsAt,
       endsAt: input.endsAt ?? null,
       createdBy: input.userId
+    });
+  }
+
+  async listActiveShiftAssignments(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+  }): Promise<ShiftAssignmentListItem[]> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+    return this.repository.listActiveShiftAssignmentsWithTemplates({
+      tenantId: input.tenantId,
+      companyId: this.requireAdminCompany(input.companyId)
+    });
+  }
+
+  async deactivateShiftAssignment(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    assignmentId: string;
+  }): Promise<void> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+    await this.repository.deactivateShiftAssignment({
+      tenantId: input.tenantId,
+      companyId: this.requireAdminCompany(input.companyId),
+      assignmentId: input.assignmentId
     });
   }
 

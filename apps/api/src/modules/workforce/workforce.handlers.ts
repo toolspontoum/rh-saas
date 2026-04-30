@@ -277,6 +277,19 @@ const assignShiftTemplateSchema = z.object({
   endsAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional()
 });
 
+const listActiveShiftAssignmentsSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid()
+});
+
+const deactivateShiftAssignmentSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  assignmentId: z.string().uuid()
+});
+
 const getEmployeeProfileSchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
@@ -545,6 +558,16 @@ export class WorkforceHandlers {
   async assignShiftTemplate(input: unknown) {
     const payload = assignShiftTemplateSchema.parse(input);
     return this.service.assignShiftTemplate(payload);
+  }
+
+  async listActiveShiftAssignments(input: unknown) {
+    const payload = listActiveShiftAssignmentsSchema.parse(input);
+    return this.service.listActiveShiftAssignments(payload);
+  }
+
+  async deactivateShiftAssignment(input: unknown) {
+    const payload = deactivateShiftAssignmentSchema.parse(input);
+    return this.service.deactivateShiftAssignment(payload);
   }
 
   async getEmployeeProfile(input: unknown) {
