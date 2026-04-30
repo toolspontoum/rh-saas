@@ -376,6 +376,11 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const out = await runTenantShiftTemplatesListGet(headerAuthorization(req), tenantSegment, xCompany4);
         return res.status(out.status).json(out.body);
       }
+      if (sub === "shift-assignments") {
+        const { runTenantShiftAssignmentsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const outSa = await runTenantShiftAssignmentsListGet(headerAuthorization(req), tenantSegment, xCompany4);
+        return res.status(outSa.status).json(outSa.body);
+      }
       if (sub === "standard-document-types") {
         const { runTenantStandardDocumentsListGet } = await import("@vv/api/run-tenant-data-gets");
         const out = await runTenantStandardDocumentsListGet(headerAuthorization(req), tenantSegment);
@@ -1149,6 +1154,23 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         const { runTenantShiftTemplatePatch } = await import("@vv/api/run-tenant-writes");
         const outSh = await runTenantShiftTemplatePatch(authUx, tenantUx, segments[4], bodyPatch, xCompanyUx);
         return res.status(outSh.status).json(outSh.body);
+      }
+
+      if (req.method === "POST" && segments.length === 4 && segments[3] === "shift-assignments") {
+        const bodySa = await readJsonBody(req);
+        const { runTenantShiftAssignmentsPost } = await import("@vv/api/run-tenant-writes");
+        const outSap = await runTenantShiftAssignmentsPost(authUx, tenantUx, bodySa, xCompanyUx);
+        return res.status(outSap.status).json(outSap.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[3] === "shift-assignments" && segments[4]) {
+        const { runTenantShiftAssignmentDelete } = await import("@vv/api/run-tenant-writes");
+        const outSad = await runTenantShiftAssignmentDelete(authUx, tenantUx, segments[4], xCompanyUx);
+        if (outSad.status === 204) {
+          res.status(204).end();
+          return;
+        }
+        return res.status(outSad.status).json(outSad.body);
       }
 
       if (

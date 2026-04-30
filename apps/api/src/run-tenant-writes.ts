@@ -446,6 +446,65 @@ export async function runTenantShiftTemplatePatch(
   }
 }
 
+/** POST /v1/tenants/:tenantId/shift-assignments */
+export async function runTenantShiftAssignmentsPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.assignShiftTemplate({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      targetUserId: typeof body.targetUserId === "string" ? body.targetUserId : undefined,
+      shiftTemplateId: typeof body.shiftTemplateId === "string" ? body.shiftTemplateId : undefined,
+      startsAt: typeof body.startsAt === "string" ? body.startsAt : undefined,
+      endsAt: typeof body.endsAt === "string" ? body.endsAt : null
+    });
+    return { status: 201, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** DELETE /v1/tenants/:tenantId/shift-assignments/:assignmentId */
+export async function runTenantShiftAssignmentDelete(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  assignmentId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    await workforceHandlers.deactivateShiftAssignment({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      assignmentId
+    });
+    return { status: 204, body: null };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** PATCH /v1/tenants/:tenantId/users/:targetUserId/status */
 export async function runTenantUserStatusPatch(
   authorizationHeader: string | null | undefined,
