@@ -18,6 +18,10 @@ const supabaseUrl = appConfig.supabaseUrl.trim() || PLACEHOLDER_SUPABASE_URL;
 const supabaseAnonKey = appConfig.supabaseAnonKey.trim() || PLACEHOLDER_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: true }
+  auth: {
+    persistSession: true,
+    /** Garante leitura de tokens no URL (hash/query) em convite e recovery. */
+    detectSessionInUrl: true
+  }
 });
 

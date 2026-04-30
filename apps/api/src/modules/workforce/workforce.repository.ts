@@ -17,6 +17,7 @@ import type {
   OncallShiftWithEvents,
   PaginatedResult,
   ShiftAssignment,
+  ShiftAssignmentListItem,
   ShiftTemplate,
   TenantWorkRule,
   TimeReportClosure,
@@ -1823,6 +1824,76 @@ export class WorkforceRepository {
       ...mapShiftAssignment(row),
       template: mapShiftTemplate(template)
     };
+  }
+
+  async listActiveShiftAssignmentsWithTemplates(input: {
+    tenantId: string;
+    companyId: string | null;
+  }): Promise<ShiftAssignmentListItem[]> {
+    let q = this.db
+      .from("employee_shift_assignments")
+      .select(
+        `
+        id,
+        user_id,
+        shift_template_id,
+        starts_at,
+        ends_at,
+        employee_shift_templates!inner ( id, name )
+      `
+      )
+      .eq("tenant_id", input.tenantId)
+      .eq("is_active", true);
+    q = withCompany(q, input.companyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    const out: ShiftAssignmentListItem[] = [];
+    for (const raw of data ?? []) {
+      const row = raw as ShiftAssignmentRow & {
+        employee_shift_templates: ShiftTemplateRow | ShiftTemplateRow[];
+      };
+      const t = Array.isArray(row.employee_shift_templates)
+        ? row.employee_shift_templates[0]
+        : row.employee_shift_templates;
+      out.push({
+        id: row.id,
+        userId: row.user_id,
+        shiftTemplateId: row.shift_template_id,
+        templateName: t?.name ?? "",
+        startsAt: row.starts_at,
+        endsAt: row.ends_at
+      });
+    }
+    return out;
+  }
+
+  async deactivateShiftAssignment(input: {
+    tenantId: string;
+    companyId: string | null;
+    assignmentId: string;
+  }): Promise<void> {
+    let fetchQ = this.db
+      .from("employee_shift_assignments")
+      .select("id, starts_at")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.assignmentId)
+      .eq("is_active", true);
+    fetchQ = withCompany(fetchQ, input.companyId);
+    const { data: row, error: fetchErr } = await fetchQ.maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!row) throw new Error("SHIFT_ASSIGNMENT_NOT_FOUND");
+    const startsAt = (row as { starts_at: string }).starts_at;
+    const today = new Date().toISOString().slice(0, 10);
+    const endsAt = startsAt > today ? startsAt : today;
+    let uq = this.db
+      .from("employee_shift_assignments")
+      .update({ is_active: false, ends_at: endsAt })
+      .eq("id", input.assignmentId)
+      .eq("tenant_id", input.tenantId)
+      .eq("is_active", true);
+    uq = withCompany(uq, input.companyId);
+    const { error } = await uq;
+    if (error) throw error;
   }
 
   async getEmployeeProfile(input: { tenantId: string; userId: string }): Promise<EmployeeProfile | null> {
