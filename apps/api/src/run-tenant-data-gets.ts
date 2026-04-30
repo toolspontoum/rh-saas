@@ -410,6 +410,31 @@ export async function runTenantNoticesListGet(
   }
 }
 
+/** GET /v1/tenants/:tenantId/notices/:noticeId */
+export async function runTenantNoticeDetailsGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  noticeId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.getNoticeDetails({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      noticeId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:tenantId/payslips */
 export async function runTenantPayslipsListGet(
   authorizationHeader: string | null | undefined,
