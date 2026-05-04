@@ -384,6 +384,36 @@ export async function runTenantTimeReportsSummaryGet(
   }
 }
 
+/** GET /v1/tenants/:tenantId/time-reports/partial-pdf */
+export async function runTenantPartialMonthReportPdfGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  query: { targetUserId?: string; referenceMonth?: string },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  const targetUserId = query.targetUserId?.trim();
+  if (!targetUserId) {
+    return { status: 400, body: { error: "BAD_REQUEST", message: "Informe targetUserId." } };
+  }
+  try {
+    const result = await workforceHandlers.getPartialMonthReportPdf({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      targetUserId,
+      referenceMonth: query.referenceMonth
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:tenantId/notices */
 export async function runTenantNoticesListGet(
   authorizationHeader: string | null | undefined,

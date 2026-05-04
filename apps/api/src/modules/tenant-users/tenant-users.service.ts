@@ -171,7 +171,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     if (input.targetUserId === input.actorUserId && input.status !== "active") {
@@ -305,7 +307,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     const companyId = this.requireAdminCompany(input.companyId);
@@ -396,7 +400,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     const target = await this.repository.getUserInTenant(
@@ -451,7 +457,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     const target = await this.repository.getUserInTenant(
@@ -501,7 +509,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     return this.repository.lookupEmployeeByEmail(input.tenantId, input.email);
@@ -515,7 +525,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     return this.repository.lookupEmployeeByCpf(input.tenantId, input.cpf);
