@@ -9,6 +9,23 @@ function tenantIdFromApiPath(path: string): string | null {
   return match?.[1] ?? null;
 }
 
+function sanitizeHttpErrorMessage(status: number, raw: string | null | undefined): string {
+  const m = (raw ?? "").trim();
+  const lower = m.toLowerCase();
+  if (
+    m.includes("<html") ||
+    m.includes("</html>") ||
+    lower.includes("bad gateway") ||
+    lower.includes("cloudflare") ||
+    lower.includes("gateway timeout")
+  ) {
+    if (status === 502) return "Servidor temporariamente indisponivel (502). Tente novamente em instantes.";
+    if (status === 504) return "Tempo esgotado ao contactar o servidor (504). Tente novamente.";
+    return `Erro ${status}. Tente novamente em instantes.`;
+  }
+  return m || `Erro ${status}`;
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers = new Headers(init?.headers ?? {});
@@ -61,12 +78,16 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
           ? "A requisição enviada é muito grande. Para currículo em PDF, use arquivos de até 15 MB."
           : `Erro ${response.status}`;
     }
-    throw new Error(message);
+    throw new Error(sanitizeHttpErrorMessage(response.status, message));
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error(sanitizeHttpErrorMessage(response.status, null));
+  }
 }

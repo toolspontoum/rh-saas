@@ -171,7 +171,9 @@ export class TenantUsersService {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
       "admin",
-      "manager"
+      "manager",
+      "analyst",
+      "preposto"
     ]);
 
     if (input.targetUserId === input.actorUserId && input.status !== "active") {

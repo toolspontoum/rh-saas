@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { CoreAuthTenantService } from "../core-auth-tenant/core-auth-tenant.service.js";
 import type { StandardDocumentsService } from "./standard-documents.service.js";
 
-const managementRoles = ["owner", "admin", "manager"] as const;
+const managementRoles = ["owner", "admin", "manager", "analyst", "preposto"] as const;
 
 const listTenantSchema = z.object({
   tenantId: z.string().uuid(),

@@ -139,6 +139,24 @@ function diffMinutes(startIso: string | undefined, endIso: string | undefined): 
   return Math.floor((end - start) / 60000);
 }
 
+/** Evita centenas de pedidos paralelos ao carregar perfis (502 no gateway). */
+async function promisePool<T, R>(items: readonly T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next;
+      next += 1;
+      if (i >= items.length) break;
+      results[i] = await mapper(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
+}
+
 function formatBalance(minutes: number): string {
   const sign = minutes < 0 ? "-" : "+";
   const abs = Math.abs(minutes);
@@ -247,7 +265,9 @@ export default function TimeRegisterPage() {
   const streamRef = useRef<MediaStream | null>(null);
 
   const canRegister = roles.some((role) => ["employee", "viewer"].includes(role));
-  const canManage = roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+  const canManage = roles.some((role) =>
+    ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+  );
 
   const rows = useMemo(() => groupRows(entries), [entries]);
   const filteredUsers = useMemo(() => {
@@ -396,23 +416,23 @@ export default function TimeRegisterPage() {
     apiFetch<Context>(`/v1/tenants/${tenantId}/context`)
       .then(async (ctx) => {
         setRoles(ctx.roles);
-        const isManager = ctx.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+        const isManager = ctx.roles.some((role) =>
+          ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+        );
 
         if (isManager) {
           const usersRes = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
           const allUsers = usersRes.items ?? [];
-          const profilePairs = await Promise.all(
-            allUsers.map(async (user) => {
-              try {
-                const profile = await apiFetch<EmployeeProfile | null>(
-                  `/v1/tenants/${tenantId}/employee-profile?targetUserId=${user.userId}`
-                );
-                return [user.userId, profile] as const;
-              } catch {
-                return [user.userId, null] as const;
-              }
-            })
-          );
+          const profilePairs = await promisePool(allUsers, 8, async (user) => {
+            try {
+              const profile = await apiFetch<EmployeeProfile | null>(
+                `/v1/tenants/${tenantId}/employee-profile?targetUserId=${user.userId}`
+              );
+              return [user.userId, profile] as const;
+            } catch {
+              return [user.userId, null] as const;
+            }
+          });
           const nextProfiles: Record<string, EmployeeProfile> = {};
           for (const [userId, profile] of profilePairs) {
             if (profile) nextProfiles[userId] = profile;
