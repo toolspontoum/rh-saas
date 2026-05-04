@@ -87,6 +87,8 @@ const createTimeEntrySchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
   userId: z.string().uuid(),
+  /** Colaborador alvo (só backoffice). Se omitido, a batida é do próprio `userId` (actor). */
+  targetUserId: z.string().uuid().optional(),
   contract: z.string().max(80).nullable().optional(),
   entryType: z.enum(["clock_in", "lunch_out", "lunch_in", "clock_out"]),
   recordedAt: z.string().datetime(),

@@ -21,6 +21,7 @@ export async function runTimeEntryPost(
       tenantId,
       companyId: scope.companyId,
       userId: s.userId,
+      targetUserId: typeof body.targetUserId === "string" ? body.targetUserId : undefined,
       contract: body.contract ?? null,
       entryType: body.entryType,
       recordedAt: body.recordedAt,

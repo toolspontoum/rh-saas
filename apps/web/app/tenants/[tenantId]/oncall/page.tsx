@@ -8,6 +8,7 @@ import { CheckCircle2, Eye, PlayCircle } from "lucide-react";
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
+import { fetchEmployeeProfilesBulk } from "../../../../lib/employee-profiles-bulk";
 
 type Context = { roles: string[] };
 type Paginated<T> = { items: T[]; page: number; pageSize: number };
@@ -201,19 +202,24 @@ export default function OncallPage() {
           `/v1/tenants/${tenantId}/users?page=1&pageSize=100`
         );
         const tenantUsers = usersRes.items ?? [];
-        const profileEntries = await Promise.all(
-          tenantUsers.map(async (item) => {
-            try {
-              const profile = await apiFetch<EmployeeProfile | null>(
-                `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-              );
-              return [item.userId, profile] as const;
-            } catch {
-              return [item.userId, null] as const;
-            }
-          })
+        const bulk = await fetchEmployeeProfilesBulk(
+          tenantId,
+          tenantUsers.map((item) => item.userId)
         );
-        const profileByUserId = new Map(profileEntries);
+        const profileByUserId = new Map<string, EmployeeProfile | null>();
+        for (const item of tenantUsers) {
+          const b = bulk[item.userId];
+          profileByUserId.set(
+            item.userId,
+            b
+              ? {
+                  fullName: b.fullName ?? item.fullName,
+                  personalEmail: b.personalEmail ?? item.email,
+                  cpf: b.cpf ?? item.cpf
+                }
+              : null
+          );
+        }
         const employeeUsers = tenantUsers
           .filter((item) => item.roles.includes("employee") || Boolean(profileByUserId.get(item.userId)))
           .map((item) => {

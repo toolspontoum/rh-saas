@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
 import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
+import { fetchEmployeeProfilesBulk } from "../../../../lib/employee-profiles-bulk";
 import { onlyDigits } from "../../../../lib/br-format";
 
 type NoticeAttachment = {
@@ -96,22 +97,23 @@ export default function NoticesPage() {
     const employeeUsers = usersRes.items.filter((item) => item.roles.includes("employee"));
     setUsers(employeeUsers);
 
-    const profilePairs = await Promise.all(
-      employeeUsers.map(async (item) => {
-        try {
-          const profile = await apiFetch<EmployeeProfile | null>(
-            `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-          );
-          return [item.userId, profile] as const;
-        } catch {
-          return [item.userId, null] as const;
-        }
-      })
+    const bulk = await fetchEmployeeProfilesBulk(
+      tenantId,
+      employeeUsers.map((item) => item.userId)
     );
-
     const profileMap: Record<string, EmployeeProfile> = {};
-    for (const [userId, profile] of profilePairs) {
-      if (profile) profileMap[userId] = profile;
+    for (const item of employeeUsers) {
+      const b = bulk[item.userId];
+      if (b) {
+        profileMap[item.userId] = {
+          userId: item.userId,
+          personalEmail: b.personalEmail,
+          cpf: b.cpf,
+          department: b.department,
+          positionTitle: b.positionTitle,
+          contractType: b.contractType
+        };
+      }
     }
     setProfiles(profileMap);
   }

@@ -1842,6 +1842,10 @@ apiRouter.post("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, re
       tenantId: req.params.tenantId,
       companyId: getTenantCompanyId(req),
       userId: (req as AuthenticatedRequest).auth.userId,
+      targetUserId:
+        typeof req.body?.targetUserId === "string" && req.body.targetUserId.trim()
+          ? req.body.targetUserId.trim()
+          : undefined,
       contract: req.body?.contract ?? null,
       entryType: req.body?.entryType,
       recordedAt: req.body?.recordedAt,
