@@ -19,14 +19,60 @@ function extractBearerToken(headerValue: string | undefined): string | null {
   return token;
 }
 
-const AUTH_GET_USER_MS = 8_000;
+const AUTH_GET_USER_MS = 20_000;
 const PLATFORM_ADMIN_DB_MS = 8_000;
+
+type AuthCacheEntry = { expiresAt: number; userId: string; email: string | null };
+const authCache = new Map<string, AuthCacheEntry>();
+const AUTH_CACHE_MAX = 2000;
+const AUTH_CACHE_MS = 5 * 60_000;
+
+function decodeJwtExpMs(token: string): number | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payloadRaw = parts[1]!.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = payloadRaw.length % 4 === 0 ? "" : "=".repeat(4 - (payloadRaw.length % 4));
+    const json = Buffer.from(payloadRaw + pad, "base64").toString("utf8");
+    const parsed = JSON.parse(json) as { exp?: number };
+    if (typeof parsed.exp !== "number") return null;
+    return parsed.exp * 1000;
+  } catch {
+    return null;
+  }
+}
+
+function cacheGet(token: string): { userId: string; email: string | null } | null {
+  const hit = authCache.get(token);
+  if (!hit) return null;
+  if (Date.now() >= hit.expiresAt) {
+    authCache.delete(token);
+    return null;
+  }
+  return { userId: hit.userId, email: hit.email };
+}
+
+function cacheSet(token: string, userId: string, email: string | null) {
+  if (authCache.size >= AUTH_CACHE_MAX) {
+    const first = authCache.keys().next().value as string | undefined;
+    if (first) authCache.delete(first);
+  }
+  const expMs = decodeJwtExpMs(token);
+  const ttl = Math.max(10_000, Math.min(AUTH_CACHE_MS, expMs ? expMs - Date.now() - 5_000 : AUTH_CACHE_MS));
+  authCache.set(token, { expiresAt: Date.now() + ttl, userId, email });
+}
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const token = extractBearerToken(req.header("authorization"));
     if (!token) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "Missing bearer token." });
+    }
+
+    const cached = cacheGet(token);
+    if (cached) {
+      (req as AuthenticatedRequest).auth = { userId: cached.userId, token, email: cached.email };
+      return next();
     }
 
     let data: Awaited<ReturnType<typeof supabaseAnon.auth.getUser>>["data"];
@@ -57,6 +103,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       token,
       email: data.user.email ?? null
     };
+    cacheSet(token, data.user.id, data.user.email ?? null);
 
     return next();
   } catch (err) {
@@ -81,6 +128,15 @@ export async function ensurePlatformAdminBearer(
   const token = extractBearerToken(authorizationHeader ?? undefined);
   if (!token) {
     return { ok: false, status: 401, body: { error: "UNAUTHORIZED", message: "Missing bearer token." } };
+  }
+
+  const cached = cacheGet(token);
+  if (cached) {
+    const email = (cached.email ?? "").trim().toLowerCase();
+    if (email && env.PLATFORM_SUPERADMIN_EMAILS.includes(email)) {
+      return { ok: true, userId: cached.userId, token, email: cached.email };
+    }
+    return { ok: false, status: 403, body: { error: "FORBIDDEN", message: "Not a platform admin." } };
   }
 
   let data: Awaited<ReturnType<typeof supabaseAnon.auth.getUser>>["data"];
@@ -111,6 +167,7 @@ export async function ensurePlatformAdminBearer(
   }
 
   const email = (data.user.email ?? "").trim().toLowerCase();
+  cacheSet(token, data.user.id, data.user.email ?? null);
   if (email && env.PLATFORM_SUPERADMIN_EMAILS.includes(email)) {
     return {
       ok: true,
