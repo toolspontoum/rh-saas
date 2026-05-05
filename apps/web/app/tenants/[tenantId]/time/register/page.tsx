@@ -222,8 +222,10 @@ export default function TimeRegisterPage() {
 
   const [activePunch, setActivePunch] = useState<PunchAction | null>(null);
   const [punchAt, setPunchAt] = useState<string>(new Date().toISOString());
-  const [geo, setGeo] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
   const [selfieData, setSelfieData] = useState<string | null>(null);
+  const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
+  const [selfiePath, setSelfiePath] = useState<string | null>(null);
+  const [selfieUploading, setSelfieUploading] = useState(false);
 
   const [adjustRow, setAdjustRow] = useState<WorkRow | null>(null);
   const [adjustType, setAdjustType] = useState<PunchAction>("clock_in");
@@ -323,45 +325,6 @@ export default function TimeRegisterPage() {
     router.replace(`${pathname}?${query}`);
   }
 
-  async function requestGeoPermission() {
-    return new Promise<{ lat: number; lon: number; accuracy: number }>((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocalização não suportada pelo navegador."));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: Number(position.coords.latitude.toFixed(6)),
-            lon: Number(position.coords.longitude.toFixed(6)),
-            accuracy: Math.round(position.coords.accuracy)
-          });
-        },
-        (err) => {
-          const code = (err as GeolocationPositionError)?.code;
-          if (code === 1) {
-            reject(
-              new Error(
-                "Permissão de localização negada. Abra as configurações do site no navegador e permita a localização."
-              )
-            );
-            return;
-          }
-          if (code === 3) {
-            reject(
-              new Error(
-                "Tempo esgotado ao obter localização. Tente em área aberta ou com Wi‑Fi ativo; se negou antes, permita nas configurações do site."
-              )
-            );
-            return;
-          }
-          reject(new Error("Permita o acesso à localização para registrar o ponto."));
-        },
-        { enableHighAccuracy: false, maximumAge: 120000, timeout: 22000 }
-      );
-    });
-  }
-
   async function startCamera() {
     if (streamRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -397,34 +360,60 @@ export default function TimeRegisterPage() {
   }
 
   async function requestDevicePermissions() {
-    const [geoResult, camResult] = await Promise.allSettled([requestGeoPermission(), startCamera()]);
-    if (geoResult.status === "rejected") {
-      stopCamera();
-      throw geoResult.reason instanceof Error ? geoResult.reason : new Error("Falha na localização.");
-    }
-    if (camResult.status === "rejected") {
-      stopCamera();
-      throw camResult.reason instanceof Error ? camResult.reason : new Error("Falha na câmera.");
-    }
-    setGeo(geoResult.value);
+    await startCamera();
   }
 
   /** Nova tentativa de permissões (gesto do utilizador ou reentrada na página). */
   function promptPermissionsAgain() {
     setError(null);
-    setGeo(null);
     stopCamera();
     requestDevicePermissions().catch((err: Error) => setError(err.message));
   }
 
-  /** Nova tentativa silenciosa (sem apagar outros erros do ecrã) — geo + câmera. */
+  /** Nova tentativa silenciosa (sem apagar outros erros do ecrã) — câmera. */
   async function tryRequestDevicePermissionsQuiet() {
-    setGeo(null);
     stopCamera();
     try {
       await requestDevicePermissions();
     } catch {
       // Pode continuar negado; o modal ou o botão voltam a tentar.
+    }
+  }
+
+  function dataUrlToBlob(dataUrl: string): Blob {
+    const [header, base64] = dataUrl.split(",");
+    const mimeMatch = header?.match(/data:(.*?);base64/);
+    const mime = mimeMatch?.[1] ?? "image/jpeg";
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+
+  async function uploadSelfieIfNeeded(): Promise<string> {
+    if (selfiePath) return selfiePath;
+    if (!selfieBlob) throw new Error("Capture a selfie antes de confirmar o registro.");
+
+    setSelfieUploading(true);
+    try {
+      const intent = await apiFetch<{ path: string; signedUrl: string }>(`/v1/tenants/${tenantId}/time-selfies/upload-intent`, {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: "selfie.jpg",
+          mimeType: selfieBlob.type || "image/jpeg",
+          sizeBytes: selfieBlob.size
+        })
+      });
+      const put = await fetch(intent.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": selfieBlob.type || "image/jpeg" },
+        body: selfieBlob
+      });
+      if (!put.ok) throw new Error(`Falha no upload da selfie (${put.status}).`);
+      setSelfiePath(intent.path);
+      return intent.path;
+    } finally {
+      setSelfieUploading(false);
     }
   }
 
@@ -595,7 +584,6 @@ export default function TimeRegisterPage() {
       stopCamera();
       return;
     }
-    setGeo(null);
     stopCamera();
     requestDevicePermissions().catch((err: Error) => setError(err.message));
     return () => stopCamera();
@@ -606,12 +594,16 @@ export default function TimeRegisterPage() {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = 320;
-    canvas.height = 240;
+    // Reduz resolução para ocupar menos espaço (armazenamento) mantendo legibilidade.
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setSelfieData(canvas.toDataURL("image/jpeg", 0.8));
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
+    setSelfieData(dataUrl);
+    setSelfieBlob(dataUrlToBlob(dataUrl));
+    setSelfiePath(null);
   }
 
   async function submitPunch() {
@@ -620,24 +612,21 @@ export default function TimeRegisterPage() {
     setOkMsg(null);
 
     try {
-      const location = geo ?? (await requestGeoPermission());
-      setGeo(location);
       if (!selfieData) {
         setError("Capture a selfie antes de confirmar o registro.");
         return;
       }
+      const uploadedPath = await uploadSelfieIfNeeded();
 
       const created = await apiFetch<TimeEntry>(`/v1/tenants/${tenantId}/time-entries`, {
         method: "POST",
         body: JSON.stringify({
           entryType: activePunch,
           recordedAt: new Date().toISOString(),
-          source: "web_selfie_geo",
+          source: "web_selfie",
           note: JSON.stringify({
-            lat: location.lat,
-            lon: location.lon,
-            accuracy: location.accuracy,
-            selfieCaptured: true
+            selfieCaptured: true,
+            selfiePath: uploadedPath
           })
         })
       });
@@ -660,6 +649,8 @@ export default function TimeRegisterPage() {
       setOkMsg(`${entryLabel[activePunch]} registrada com sucesso.`);
       setActivePunch(null);
       setSelfieData(null);
+      setSelfieBlob(null);
+      setSelfiePath(null);
       await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
     } catch (err) {
       setError((err as Error).message);
@@ -1315,10 +1306,6 @@ export default function TimeRegisterPage() {
       >
         <div className="card stack">
           <p><strong>Data e horário:</strong> {new Date(punchAt).toLocaleString("pt-BR")}</p>
-          <p>
-            <strong>Localização:</strong>{" "}
-            {geo ? `${geo.lat}, ${geo.lon} (precisão ${geo.accuracy}m)` : "Aguardando permissão..."}
-          </p>
           <p className="muted" style={{ fontSize: "0.9rem" }}>
             Se já negou o acesso antes, altere nas definições do site ou do sistema e toque em &quot;Pedir permissões
             novamente&quot;.
@@ -1327,6 +1314,7 @@ export default function TimeRegisterPage() {
             <button type="button" className="secondary" onClick={promptPermissionsAgain}>
               Pedir permissões novamente
             </button>
+            {selfieUploading ? <span className="muted">Enviando selfie…</span> : null}
           </div>
           <video ref={videoRef} muted playsInline style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
           <canvas ref={canvasRef} style={{ display: "none" }} />

@@ -5,6 +5,34 @@ import { resolveCompanyScopeFromHeader } from "./tenant-company-from-header.js";
 
 export type JsonHttpResult = { status: number; body: unknown };
 
+/** POST /v1/tenants/:id/time-selfies/upload-intent */
+export async function runTimeSelfieUploadIntentPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.createTimeSelfieUploadIntent({
+      tenantId,
+      companyId: scope.companyId,
+      userId: s.userId,
+      targetUserId: typeof body.targetUserId === "string" ? body.targetUserId : undefined,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
+      sizeBytes: body.sizeBytes
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** POST /v1/tenants/:id/time-entries */
 export async function runTimeEntryPost(
   authorizationHeader: string | null | undefined,

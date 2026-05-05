@@ -20,6 +20,7 @@
     "./run-payslips-ai-vercel": "./src/run-payslips-ai-vercel.ts",
     "./run-shift-assignment": "./src/run-shift-assignment.ts",
     "./run-workforce-time-mutations": "./src/run-workforce-time-mutations.ts",
+    "./run-http-job-time-selfies-cleanup": "./src/run-http-job-time-selfies-cleanup.ts",
     "./run-public-jobs": "./src/run-public-jobs.ts",
     "./run-http-job-ai-tick": "./src/run-http-job-ai-tick.ts"
   },

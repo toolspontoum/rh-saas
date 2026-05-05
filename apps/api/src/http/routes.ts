@@ -1836,6 +1836,27 @@ apiRouter.post("/v1/tenants/:tenantId/notices/upload-intent", requireAuth, async
   }
 });
 
+apiRouter.post("/v1/tenants/:tenantId/time-selfies/upload-intent", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.createTimeSelfieUploadIntent({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      targetUserId:
+        typeof req.body?.targetUserId === "string" && req.body.targetUserId.trim()
+          ? req.body.targetUserId.trim()
+          : undefined,
+      fileName: req.body?.fileName,
+      mimeType: req.body?.mimeType,
+      sizeBytes: req.body?.sizeBytes
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.post("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, res) => {
   try {
     const result = await workforceHandlers.createTimeEntry({
