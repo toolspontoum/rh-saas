@@ -466,7 +466,9 @@ export default function TimeRegisterPage() {
         if (isManager) {
           setUsersLoading(true);
           setError(null);
-          const usersRes = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
+          const usersRes = await apiFetch<Paginated<TenantUser>>(
+            `/v1/tenants/${tenantId}/users?page=1&pageSize=100&includeAuthMeta=false`
+          );
           const allUsers = usersRes.items ?? [];
           const bulk = await fetchEmployeeProfilesBulk(
             tenantId,
