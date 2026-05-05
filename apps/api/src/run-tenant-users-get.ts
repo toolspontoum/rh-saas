@@ -11,6 +11,8 @@ export type TenantUsersListQuery = {
   search?: string;
   page?: string;
   pageSize?: string;
+  includePurgedProfiles?: string;
+  includeAuthMeta?: string;
 };
 
 /** GET /v1/tenants/:tenantId/users — lista utilizadores (página de gestão). */
@@ -32,7 +34,10 @@ export async function runTenantUsersListGet(
       : undefined;
 
   try {
-    const includePurged = await isPlatformAdminUser(s.userId, s.email);
+    // Evita chamar plataforma/superadmins por padrão (pode ser lento e causar 504).
+    // Só checa quando alguém explicitamente pedir ver perfis purgados.
+    const wantsPurged = query.includePurgedProfiles === "true";
+    const includePurged = wantsPurged ? await isPlatformAdminUser(s.userId, s.email) : false;
     const result = await tenantUsersHandlers.listUsers({
       tenantId,
       userId: s.userId,
@@ -41,7 +46,8 @@ export async function runTenantUsersListGet(
       search: query.search,
       page: query.page,
       pageSize: query.pageSize,
-      includePurgedProfiles: includePurged
+      includePurgedProfiles: includePurged,
+      includeAuthMeta: query.includeAuthMeta === "true"
     });
     return { status: 200, body: result };
   } catch (error) {

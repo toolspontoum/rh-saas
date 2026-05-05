@@ -17,7 +17,9 @@ export async function GET(
       status: url.searchParams.get("status") ?? undefined,
       search: url.searchParams.get("search") ?? undefined,
       page: url.searchParams.get("page") ?? undefined,
-      pageSize: url.searchParams.get("pageSize") ?? undefined
+      pageSize: url.searchParams.get("pageSize") ?? undefined,
+      includePurgedProfiles: url.searchParams.get("includePurgedProfiles") ?? undefined,
+      includeAuthMeta: url.searchParams.get("includeAuthMeta") ?? undefined
     },
     xCompany
   );
