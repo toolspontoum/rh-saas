@@ -202,6 +202,7 @@ export default function TimeRegisterPage() {
   const [roles, setRoles] = useState<string[]>([]);
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [employeeProfiles, setEmployeeProfiles] = useState<Record<string, EmployeeProfile>>({});
+  const [usersLoading, setUsersLoading] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [userSearch, setUserSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("all");
@@ -463,6 +464,8 @@ export default function TimeRegisterPage() {
         );
 
         if (isManager) {
+          setUsersLoading(true);
+          setError(null);
           const usersRes = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
           const allUsers = usersRes.items ?? [];
           const bulk = await fetchEmployeeProfilesBulk(
@@ -490,6 +493,7 @@ export default function TimeRegisterPage() {
             employeeUsers.find((user) => user.userId === selectedUserIdFromQuery)?.userId ?? employeeUsers[0]?.userId ?? "";
           setSelectedUserId(defaultUser);
           await loadData(defaultUser || undefined, true);
+          setUsersLoading(false);
           return;
         }
 
@@ -502,7 +506,10 @@ export default function TimeRegisterPage() {
           }
         }
       })
-      .catch((err: Error) => setError(err.message));
+      .catch((err: Error) => {
+        setUsersLoading(false);
+        setError(err.message);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -1057,7 +1064,11 @@ export default function TimeRegisterPage() {
                     </tr>
                   );
                 })}
-                {filteredUsers.length === 0 ? (
+                {usersLoading ? (
+                  <tr>
+                    <td colSpan={7} className="muted">Carregando colaboradores...</td>
+                  </tr>
+                ) : filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="muted">Nenhum colaborador encontrado.</td>
                   </tr>

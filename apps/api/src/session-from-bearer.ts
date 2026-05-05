@@ -1,5 +1,8 @@
 import { supabaseAnon } from "./lib/supabase.js";
 import { withTimeout } from "./lib/with-timeout.js";
+import { jwtVerify } from "jose";
+
+import { env } from "./config/env.js";
 
 const AUTH_MS = 20_000;
 
@@ -54,6 +57,24 @@ export type BearerSessionOk = { ok: true; userId: string; email: string | null; 
 export type BearerSessionErr = { ok: false; status: number; body: Record<string, unknown> };
 export type BearerSession = BearerSessionOk | BearerSessionErr;
 
+async function verifyBearerJwtLocal(token: string): Promise<{ userId: string; email: string | null } | null> {
+  const secret = env.SUPABASE_JWT_SECRET?.trim();
+  if (!secret) return null;
+  try {
+    const key = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, key, { algorithms: ["HS256"] });
+    const userId = typeof payload.sub === "string" ? payload.sub : null;
+    if (!userId) return null;
+    const email =
+      typeof (payload as Record<string, unknown>).email === "string"
+        ? ((payload as Record<string, unknown>).email as string)
+        : null;
+    return { userId, email };
+  } catch {
+    return null;
+  }
+}
+
 /** Validação JWT partilhada pelos handlers `run-*` sem Express. */
 export async function getBearerSession(authorizationHeader: string | null | undefined): Promise<BearerSession> {
   const token = extractBearer(authorizationHeader);
@@ -63,6 +84,13 @@ export async function getBearerSession(authorizationHeader: string | null | unde
 
   const cached = cacheGet(token);
   if (cached) return cached;
+
+  const local = await verifyBearerJwtLocal(token);
+  if (local) {
+    const session: BearerSessionOk = { ok: true, userId: local.userId, email: local.email, token };
+    cacheSet(token, session);
+    return session;
+  }
 
   let data: Awaited<ReturnType<typeof supabaseAnon.auth.getUser>>["data"];
   let error: Awaited<ReturnType<typeof supabaseAnon.auth.getUser>>["error"];
