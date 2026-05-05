@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
 import { apiFetch } from "../../../../../lib/api";
 import { fetchEmployeeProfilesBulk } from "../../../../../lib/employee-profiles-bulk";
+import { getStoredTenantCompanyId } from "../../../../../lib/tenant-company-scope";
 
 type Context = { roles: string[] };
 type Paginated<T> = { items: T[] };
@@ -430,6 +431,7 @@ export default function TimeRegisterPage() {
   async function loadData(targetUserId?: string, manageModeOverride?: boolean) {
     const qTarget = targetUserId ? `&targetUserId=${targetUserId}` : "";
     const manageMode = manageModeOverride ?? canManage;
+    const companySelected = Boolean(getStoredTenantCompanyId(tenantId));
     const qAdjust = manageMode
       ? `mineOnly=false${targetUserId ? `&targetUserId=${targetUserId}` : ""}`
       : "mineOnly=true";
@@ -439,7 +441,11 @@ export default function TimeRegisterPage() {
     const [entriesRes, adjustmentsRes, ruleRes, profileRes, summaryRes] = await Promise.all([
       apiFetch<Paginated<TimeEntry>>(`/v1/tenants/${tenantId}/time-entries?page=1&pageSize=100${qTarget}`),
       apiFetch<Paginated<TimeAdjustment>>(`/v1/tenants/${tenantId}/time-adjustments?${qAdjust}&page=1&pageSize=100`),
-      apiFetch<WorkRule>(`/v1/tenants/${tenantId}/work-rules`),
+      // Quando o backoffice está em "Todos" (sem empresa/projeto selecionado), algumas instâncias exigem escopo.
+      // Nesse caso, mantém UI funcional com regra padrão.
+      companySelected
+        ? apiFetch<WorkRule>(`/v1/tenants/${tenantId}/work-rules`)
+        : (Promise.resolve({ dailyWorkMinutes: 480 } as WorkRule) as Promise<WorkRule>),
       apiFetch<EmployeeProfile | null>(
         `/v1/tenants/${tenantId}/employee-profile${targetUserId ? `?targetUserId=${targetUserId}` : ""}`
       ),
@@ -510,6 +516,9 @@ export default function TimeRegisterPage() {
       })
       .catch((err: Error) => {
         setUsersLoading(false);
+        // Sem empresa/projeto selecionado, alguns endpoints podem devolver COMPANY_SCOPE_REQUIRED.
+        // O comportamento esperado aqui é manter a tela aberta (modo "Todos") sem bloquear com erro.
+        if ((err.message ?? "").includes("Selecione a empresa/projeto no painel")) return;
         setError(err.message);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
