@@ -301,21 +301,49 @@ export class WorkforceService {
     tenantId: string;
     userId: string;
     companyId?: string | null;
+    targetUserId?: string | null;
     contract?: string | null;
     entryType: TimeEntry["entryType"];
     recordedAt: string;
     source: string;
     note?: string | null;
   }): Promise<TimeEntry> {
-    await this.authTenantService.getTenantContext(input.userId, input.tenantId);
-    const companyId = await this.resolveEmployeeCompanyId(input);
-    const lastEntry = await this.repository.getLastTimeEntry({
+    const actorUserId = input.userId;
+    const subjectUserId = input.targetUserId?.trim() || actorUserId;
+
+    await this.authTenantService.getTenantContext(actorUserId, input.tenantId);
+    if (subjectUserId !== actorUserId) {
+      await this.authTenantService.assertUserHasAnyRole(actorUserId, input.tenantId, [
+        "owner",
+        "admin",
+        "manager",
+        "analyst",
+        "preposto"
+      ]);
+    }
+
+    const companyId = await this.resolveEmployeeCompanyId({
       tenantId: input.tenantId,
-      userId: input.userId,
-      companyId
+      userId: subjectUserId,
+      companyId: input.companyId ?? null
+    });
+    const lastEntry = await this.repository.getLastTimeEntryBefore({
+      tenantId: input.tenantId,
+      userId: subjectUserId,
+      companyId,
+      beforeRecordedAt: input.recordedAt
     });
     validateTimeEntrySequence(lastEntry?.entryType ?? null, input.entryType);
-    return this.repository.createTimeEntry({ ...input, companyId });
+    return this.repository.createTimeEntry({
+      tenantId: input.tenantId,
+      companyId,
+      userId: subjectUserId,
+      contract: input.contract ?? null,
+      entryType: input.entryType,
+      recordedAt: input.recordedAt,
+      source: input.source,
+      note: input.note ?? null
+    });
   }
 
   async listTimeEntries(input: {
@@ -1941,7 +1969,22 @@ export class WorkforceService {
     companyId?: string | null;
     userId: string;
     targetUserIds: string[];
-  }): Promise<{ items: Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }> }> {
+  }): Promise<{
+    items: Record<
+      string,
+      {
+        fullName: string | null;
+        personalEmail: string | null;
+        cpf: string | null;
+        department: string | null;
+        contractType: string | null;
+        positionTitle: string | null;
+        employeeTags: string[];
+        status: "active" | "inactive" | "offboarded";
+        baseSalary: number | null;
+      }
+    >;
+  }> {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
       "admin",

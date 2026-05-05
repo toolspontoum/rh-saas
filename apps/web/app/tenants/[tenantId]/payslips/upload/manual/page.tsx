@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { Breadcrumbs } from "../../../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../../../components/empty-state";
 import { apiFetch } from "../../../../../../lib/api";
+import { fetchEmployeeProfilesBulk } from "../../../../../../lib/employee-profiles-bulk";
 import { formatCpf } from "../../../../../../lib/br-format";
 
 type UploadIntent = { path: string; signedUrl: string };
@@ -76,22 +77,24 @@ export default function PayslipsManualUploadPage() {
     const collaborators = usersData.items.filter((item) => item.roles.includes("employee"));
     setUsers(collaborators);
 
-    const entries = await Promise.all(
-      collaborators.map(async (item) => {
-        try {
-          const profile = await apiFetch<EmployeeProfile | null>(
-            `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-          );
-          return [item.userId, profile] as const;
-        } catch {
-          return [item.userId, null] as const;
-        }
-      })
+    const bulk = await fetchEmployeeProfilesBulk(
+      tenantId,
+      collaborators.map((item) => item.userId)
     );
-
     const nextProfiles: Record<string, EmployeeProfile> = {};
-    for (const [userId, profile] of entries) {
-      if (profile) nextProfiles[userId] = profile;
+    for (const item of collaborators) {
+      const b = bulk[item.userId];
+      if (!b) continue;
+      nextProfiles[item.userId] = {
+        contractType: b.contractType,
+        department: b.department,
+        positionTitle: b.positionTitle,
+        baseSalary: b.baseSalary,
+        fullName: b.fullName ?? item.fullName,
+        personalEmail: b.personalEmail ?? item.email,
+        cpf: b.cpf ?? item.cpf,
+        employeeTags: b.employeeTags
+      };
     }
     setProfiles(nextProfiles);
   }

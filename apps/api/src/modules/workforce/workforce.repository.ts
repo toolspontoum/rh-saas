@@ -938,6 +938,30 @@ export class WorkforceRepository {
     return mapTimeEntry(data as TimeEntryRow);
   }
 
+  /** Última batida com `recorded_at` estritamente anterior a `beforeRecordedAt` (para inclusão retroativa / admin). */
+  async getLastTimeEntryBefore(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    beforeRecordedAt: string;
+  }): Promise<TimeEntry | null> {
+    const { data, error } = await withCompany(
+      this.db
+        .from("time_entries")
+        .select("*")
+        .eq("tenant_id", input.tenantId)
+        .eq("user_id", input.userId)
+        .lt("recorded_at", input.beforeRecordedAt),
+      input.companyId
+    )
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return mapTimeEntry(data as TimeEntryRow);
+  }
+
   async listTimeEntries(input: {
     tenantId: string;
     companyId?: string | null;
@@ -1966,13 +1990,30 @@ export class WorkforceRepository {
     tenantId: string;
     companyId: string | null;
     userIds: string[];
-  }): Promise<Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }>> {
+  }): Promise<
+    Record<
+      string,
+      {
+        fullName: string | null;
+        personalEmail: string | null;
+        cpf: string | null;
+        department: string | null;
+        contractType: string | null;
+        positionTitle: string | null;
+        employeeTags: string[];
+        status: "active" | "inactive" | "offboarded";
+        baseSalary: number | null;
+      }
+    >
+  > {
     const userIds = Array.from(new Set((input.userIds ?? []).filter(Boolean)));
     if (userIds.length === 0) return {};
 
     let query = this.db
       .from("tenant_user_profiles")
-      .select("user_id,department,contract_type,position_title")
+      .select(
+        "user_id,full_name,personal_email,cpf,department,contract_type,position_title,employee_tags,status,base_salary"
+      )
       .eq("tenant_id", input.tenantId)
       .in("user_id", userIds);
 
@@ -1984,18 +2025,44 @@ export class WorkforceRepository {
     if (error) throw error;
     const rows = (data ?? []) as Array<{
       user_id: string;
+      full_name: string | null;
+      personal_email: string | null;
+      cpf: string | null;
       department: string | null;
       contract_type: string | null;
       position_title: string | null;
+      employee_tags: string[] | null;
+      status: string | null;
+      base_salary: number | null;
     }>;
 
-    const out: Record<string, { department: string | null; contractType: string | null; positionTitle: string | null }> = {};
+    const out: Record<
+      string,
+      {
+        fullName: string | null;
+        personalEmail: string | null;
+        cpf: string | null;
+        department: string | null;
+        contractType: string | null;
+        positionTitle: string | null;
+        employeeTags: string[];
+        status: "active" | "inactive" | "offboarded";
+        baseSalary: number | null;
+      }
+    > = {};
     for (const row of rows) {
       if (!row.user_id) continue;
+      const st = row.status === "inactive" || row.status === "offboarded" ? row.status : "active";
       out[row.user_id] = {
+        fullName: row.full_name ?? null,
+        personalEmail: row.personal_email?.trim().toLowerCase() ?? null,
+        cpf: row.cpf ?? null,
         department: row.department ?? null,
         contractType: row.contract_type ?? null,
-        positionTitle: row.position_title ?? null
+        positionTitle: row.position_title ?? null,
+        employeeTags: Array.isArray(row.employee_tags) ? row.employee_tags : [],
+        status: st,
+        baseSalary: row.base_salary != null ? Number(row.base_salary) : null
       };
     }
     return out;

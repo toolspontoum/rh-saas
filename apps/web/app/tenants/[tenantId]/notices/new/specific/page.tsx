@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Breadcrumbs } from "../../../../../../components/breadcrumbs";
 import { RichTextEditor } from "../../../../../../components/rich-text-editor";
 import { apiFetch } from "../../../../../../lib/api";
+import { fetchEmployeeProfilesBulk } from "../../../../../../lib/employee-profiles-bulk";
 
 type UploadIntent = { path: string; signedUrl: string };
 type PendingAttachment = { tempId: string; file: File };
@@ -45,20 +46,21 @@ export default function NewSpecificNoticePage() {
       .then(async (usersRes: Paginated<TenantUser>) => {
         const employeeUsers = usersRes.items.filter((item: TenantUser) => item.roles.includes("employee"));
         setUsers(employeeUsers);
-        const profilePairs = await Promise.all(
-          employeeUsers.map(async (item: TenantUser) => {
-            try {
-              const profile = await apiFetch<EmployeeProfile | null>(
-                `/v1/tenants/${tenantId}/employee-profile?targetUserId=${item.userId}`
-              );
-              return [item.userId, profile] as const;
-            } catch {
-              return [item.userId, null] as const;
-            }
-          })
+        const bulk = await fetchEmployeeProfilesBulk(
+          tenantId,
+          employeeUsers.map((item) => item.userId)
         );
         const profileMap: Record<string, EmployeeProfile> = {};
-        for (const [userId, profile] of profilePairs) if (profile) profileMap[userId] = profile;
+        for (const item of employeeUsers) {
+          const b = bulk[item.userId];
+          if (b) {
+            profileMap[item.userId] = {
+              userId: item.userId,
+              positionTitle: b.positionTitle,
+              contractType: b.contractType
+            };
+          }
+        }
         setProfiles(profileMap);
       })
       .catch((err: Error) => setError(err.message));

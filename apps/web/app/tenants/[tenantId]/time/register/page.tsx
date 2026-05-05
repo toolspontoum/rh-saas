@@ -7,6 +7,7 @@ import { Camera, CheckCircle2, Clock3, Info, Pencil, XCircle } from "lucide-reac
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
 import { apiFetch } from "../../../../../lib/api";
+import { fetchEmployeeProfilesBulk } from "../../../../../lib/employee-profiles-bulk";
 
 type Context = { roles: string[] };
 type Paginated<T> = { items: T[] };
@@ -137,24 +138,6 @@ function diffMinutes(startIso: string | undefined, endIso: string | undefined): 
   const end = new Date(endIso).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
   return Math.floor((end - start) / 60000);
-}
-
-/** Evita centenas de pedidos paralelos ao carregar perfis (502 no gateway). */
-async function promisePool<T, R>(items: readonly T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (true) {
-      const i = next;
-      next += 1;
-      if (i >= items.length) break;
-      results[i] = await mapper(items[i]!);
-    }
-  }
-  await Promise.all(Array.from({ length: limit }, () => worker()));
-  return results;
 }
 
 function formatBalance(minutes: number): string {
@@ -352,15 +335,48 @@ export default function TimeRegisterPage() {
             accuracy: Math.round(position.coords.accuracy)
           });
         },
-        () => reject(new Error("Permita o acesso à localização para registrar o ponto.")),
-        { enableHighAccuracy: true, timeout: 10000 }
+        (err) => {
+          const code = (err as GeolocationPositionError)?.code;
+          if (code === 1) {
+            reject(
+              new Error(
+                "Permissão de localização negada. Abra as configurações do site no navegador e permita a localização."
+              )
+            );
+            return;
+          }
+          if (code === 3) {
+            reject(
+              new Error(
+                "Tempo esgotado ao obter localização. Tente em área aberta ou com Wi‑Fi ativo; se negou antes, permita nas configurações do site."
+              )
+            );
+            return;
+          }
+          reject(new Error("Permita o acesso à localização para registrar o ponto."));
+        },
+        { enableHighAccuracy: false, maximumAge: 120000, timeout: 22000 }
       );
     });
   }
 
   async function startCamera() {
     if (streamRef.current) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Câmera indisponível neste contexto. Use HTTPS e um navegador atualizado.");
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    } catch (e) {
+      const name = e instanceof DOMException ? e.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        throw new Error(
+          "Permissão da câmera negada. Permita câmera nas configurações do site ou do sistema e tente de novo."
+        );
+      }
+      throw new Error("Não foi possível iniciar a câmera.");
+    }
     streamRef.current = stream;
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
@@ -379,9 +395,35 @@ export default function TimeRegisterPage() {
   }
 
   async function requestDevicePermissions() {
-    const location = await requestGeoPermission();
-    await startCamera();
-    setGeo(location);
+    const [geoResult, camResult] = await Promise.allSettled([requestGeoPermission(), startCamera()]);
+    if (geoResult.status === "rejected") {
+      stopCamera();
+      throw geoResult.reason instanceof Error ? geoResult.reason : new Error("Falha na localização.");
+    }
+    if (camResult.status === "rejected") {
+      stopCamera();
+      throw camResult.reason instanceof Error ? camResult.reason : new Error("Falha na câmera.");
+    }
+    setGeo(geoResult.value);
+  }
+
+  /** Nova tentativa de permissões (gesto do utilizador ou reentrada na página). */
+  function promptPermissionsAgain() {
+    setError(null);
+    setGeo(null);
+    stopCamera();
+    requestDevicePermissions().catch((err: Error) => setError(err.message));
+  }
+
+  /** Nova tentativa silenciosa (sem apagar outros erros do ecrã) — geo + câmera. */
+  async function tryRequestDevicePermissionsQuiet() {
+    setGeo(null);
+    stopCamera();
+    try {
+      await requestDevicePermissions();
+    } catch {
+      // Pode continuar negado; o modal ou o botão voltam a tentar.
+    }
   }
 
   async function loadData(targetUserId?: string, manageModeOverride?: boolean) {
@@ -423,19 +465,23 @@ export default function TimeRegisterPage() {
         if (isManager) {
           const usersRes = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`);
           const allUsers = usersRes.items ?? [];
-          const profilePairs = await promisePool(allUsers, 8, async (user) => {
-            try {
-              const profile = await apiFetch<EmployeeProfile | null>(
-                `/v1/tenants/${tenantId}/employee-profile?targetUserId=${user.userId}`
-              );
-              return [user.userId, profile] as const;
-            } catch {
-              return [user.userId, null] as const;
-            }
-          });
+          const bulk = await fetchEmployeeProfilesBulk(
+            tenantId,
+            allUsers.map((u) => u.userId)
+          );
           const nextProfiles: Record<string, EmployeeProfile> = {};
-          for (const [userId, profile] of profilePairs) {
-            if (profile) nextProfiles[userId] = profile;
+          for (const user of allUsers) {
+            const b = bulk[user.userId];
+            if (!b) continue;
+            nextProfiles[user.userId] = {
+              fullName: b.fullName ?? user.fullName,
+              cpf: b.cpf ?? user.cpf,
+              department: b.department,
+              positionTitle: b.positionTitle,
+              contractType: b.contractType,
+              status: b.status,
+              employeeTags: b.employeeTags
+            };
           }
           setEmployeeProfiles(nextProfiles);
           const employeeUsers = allUsers.filter((user) => user.roles.includes("employee") || Boolean(nextProfiles[user.userId]));
@@ -452,13 +498,52 @@ export default function TimeRegisterPage() {
           try {
             await requestDevicePermissions();
           } catch {
-            // Mantém fluxo: o pedido será repetido ao registrar ponto.
+            // Mantém fluxo: o pedido será repetido ao registrar ponto ou ao voltar ao separador.
           }
         }
       })
       .catch((err: Error) => setError(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
+
+  /** Ao voltar ao separador/janela, volta a pedir localização e câmera (se o browser permitir novo prompt). */
+  useEffect(() => {
+    if (!canRegister || canManage) return;
+    const onFocus = () => {
+      void tryRequestDevicePermissionsQuiet();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void tryRequestDevicePermissionsQuiet();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [tenantId, canRegister, canManage]);
+
+  /** Se o utilizador alterar permissões nas definições do browser, tentar de imediato. */
+  useEffect(() => {
+    if (!canRegister || canManage) return;
+    if (!navigator.permissions?.query) return;
+    const cleanups: Array<() => void> = [];
+    const watch = async (descriptor: PermissionDescriptor) => {
+      try {
+        const status = await navigator.permissions.query(descriptor);
+        const onChange = () => {
+          void tryRequestDevicePermissionsQuiet();
+        };
+        status.addEventListener("change", onChange);
+        cleanups.push(() => status.removeEventListener("change", onChange));
+      } catch {
+        // Permissão não suportada neste browser
+      }
+    };
+    void watch({ name: "camera" as PermissionName });
+    void watch({ name: "geolocation" as PermissionName });
+    return () => cleanups.forEach((fn) => fn());
+  }, [tenantId, canRegister, canManage]);
 
   useEffect(() => {
     if (!canManage || !selectedUserId) return;
@@ -492,6 +577,8 @@ export default function TimeRegisterPage() {
       stopCamera();
       return;
     }
+    setGeo(null);
+    stopCamera();
     requestDevicePermissions().catch((err: Error) => setError(err.message));
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -722,8 +809,11 @@ export default function TimeRegisterPage() {
   async function submitEditRow(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingRow) return;
+    if (!selectedUserId) {
+      setError("Selecione um colaborador.");
+      return;
+    }
 
-    const changes: Array<{ id: string; value: string }> = [];
     const map: Record<PunchAction, TimeEntry | undefined> = {
       clock_in: editingRow.clockIn,
       lunch_out: editingRow.lunchOut,
@@ -731,31 +821,61 @@ export default function TimeRegisterPage() {
       clock_out: editingRow.clockOut
     };
 
+    const patchOps: Array<{ id: string; value: string }> = [];
+    const createOps: Array<{ type: PunchAction; at: string }> = [];
+
     for (const key of Object.keys(map) as PunchAction[]) {
       const entry = map[key];
-      if (!entry) continue;
-      const nextValue = editingValues[key];
-      if (!nextValue) continue;
-      const currentValue = toLocalInput(entry.recordedAt);
-      if (nextValue !== currentValue) {
-        changes.push({ id: entry.id, value: fromLocalInput(nextValue) });
+      const raw = editingValues[key]?.trim();
+      if (!raw) continue;
+      const iso = fromLocalInput(raw);
+      if (entry) {
+        const currentValue = toLocalInput(entry.recordedAt);
+        if (raw !== currentValue) {
+          patchOps.push({ id: entry.id, value: iso });
+        }
+      } else {
+        createOps.push({ type: key, at: iso });
       }
     }
 
-    if (changes.length === 0) {
+    if (patchOps.length === 0 && createOps.length === 0) {
       setEditingRow(null);
       return;
     }
 
+    if (createOps.length > 0 && !editReason.trim()) {
+      setError("Informe o motivo da edição ao incluir batidas em branco.");
+      return;
+    }
+
+    setError(null);
     try {
       await Promise.all(
-        changes.map((change) =>
+        patchOps.map((change) =>
           apiFetch(`/v1/tenants/${tenantId}/time-entries/${change.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ recordedAt: change.value, reason: editReason || null })
+            body: JSON.stringify({ recordedAt: change.value, reason: editReason.trim() || null })
           })
         )
       );
+
+      const sortedCreates = [...createOps].sort((a, b) => a.at.localeCompare(b.at));
+      const noteBase = editReason.trim() || "Inclusão manual de batidas pelo gestor.";
+      for (const c of sortedCreates) {
+        await apiFetch<TimeEntry>(`/v1/tenants/${tenantId}/time-entries`, {
+          method: "POST",
+          body: JSON.stringify({
+            targetUserId: selectedUserId,
+            entryType: c.type,
+            recordedAt: c.at,
+            source: "admin_manual",
+            contract: targetProfile?.contractType ?? null,
+            note: noteBase.slice(0, 1000)
+          })
+        });
+      }
+
       setOkMsg("Registro de ponto atualizado com sucesso.");
       setEditingRow(null);
       await loadData(selectedUserId || undefined, true);
@@ -1177,6 +1297,15 @@ export default function TimeRegisterPage() {
             <strong>Localização:</strong>{" "}
             {geo ? `${geo.lat}, ${geo.lon} (precisão ${geo.accuracy}m)` : "Aguardando permissão..."}
           </p>
+          <p className="muted" style={{ fontSize: "0.9rem" }}>
+            Se já negou o acesso antes, altere nas definições do site ou do sistema e toque em &quot;Pedir permissões
+            novamente&quot;.
+          </p>
+          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="secondary" onClick={promptPermissionsAgain}>
+              Pedir permissões novamente
+            </button>
+          </div>
           <video ref={videoRef} muted playsInline style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
           <canvas ref={canvasRef} style={{ display: "none" }} />
           {selfieData ? <img src={selfieData} alt="Selfie" style={{ width: 180, borderRadius: 8, border: "1px solid var(--border)" }} /> : null}
@@ -1262,7 +1391,10 @@ export default function TimeRegisterPage() {
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card" role="dialog" aria-modal="true" aria-label="Editar registro de ponto">
             <h3>Editar registro de ponto</h3>
-            <p className="muted">Atualize os horários necessários. A data base do registro é mantida.</p>
+            <p className="muted">
+              Atualize os horários existentes ou preencha campos em branco para criar a batida em falta (entrada, almoço,
+              retorno ou saída). Use horários na ordem cronológica do dia.
+            </p>
             <form className="stack" onSubmit={submitEditRow}>
               {(Object.keys(entryLabel) as PunchAction[]).map((key) => (
                 <label key={key}>
