@@ -96,6 +96,17 @@ const createTimeEntrySchema = z.object({
   note: z.string().max(1000).nullable().optional()
 });
 
+const createTimeSelfieUploadIntentSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  /** Colaborador alvo (só backoffice). Se omitido, a selfie é do próprio `userId` (actor). */
+  targetUserId: z.string().uuid().optional(),
+  fileName: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120),
+  sizeBytes: z.coerce.number().int().positive()
+});
+
 const listTimeEntriesSchema = z.object({
   tenantId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
@@ -410,6 +421,11 @@ export class WorkforceHandlers {
   async createTimeEntry(input: unknown) {
     const payload = createTimeEntrySchema.parse(input);
     return this.service.createTimeEntry(payload);
+  }
+
+  async createTimeSelfieUploadIntent(input: unknown) {
+    const payload = createTimeSelfieUploadIntentSchema.parse(input);
+    return this.service.createTimeSelfieUploadIntent(payload);
   }
 
   async listTimeEntries(input: unknown) {

@@ -297,6 +297,41 @@ export class WorkforceService {
     return this.repository.createSignedUploadUrl(env.STORAGE_BUCKET_DOCUMENTS, path);
   }
 
+  async createTimeSelfieUploadIntent(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    targetUserId?: string | null;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  }): Promise<{ path: string; token: string; signedUrl: string }> {
+    const actorUserId = input.userId;
+    const subjectUserId = input.targetUserId?.trim() || actorUserId;
+
+    await this.authTenantService.getTenantContext(actorUserId, input.tenantId);
+    if (subjectUserId !== actorUserId) {
+      await this.authTenantService.assertUserHasAnyRole(actorUserId, input.tenantId, [
+        "owner",
+        "admin",
+        "manager",
+        "analyst",
+        "preposto"
+      ]);
+    }
+
+    const normalizedFileName = sanitizeFileName(input.fileName);
+    const mime = (input.mimeType ?? "").trim().toLowerCase();
+    if (!mime.startsWith("image/")) throw new Error("INVALID_FILE_TYPE");
+    if (input.sizeBytes > 3 * 1024 * 1024) {
+      throw new Error("FILE_TOO_LARGE");
+    }
+
+    // Armazenar no bucket de documentos para evitar dependência de bucket novo em produção.
+    const path = `tenants/${input.tenantId}/time-selfies/${Date.now()}-${subjectUserId}-${randomUUID()}-${normalizedFileName}`;
+    return this.repository.createSignedUploadUrl(env.STORAGE_BUCKET_DOCUMENTS, path);
+  }
+
   async createTimeEntry(input: {
     tenantId: string;
     userId: string;
