@@ -29,6 +29,11 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_PROJECT_REF: z.string().min(1),
+  /**
+   * Opcional: segredo JWT do Supabase (Settings → API → JWT Secret).
+   * Quando definido, a API valida o bearer JWT localmente sem chamar o Supabase Auth (evita 504 por rede).
+   */
+  SUPABASE_JWT_SECRET: z.string().min(10).optional(),
   PLATFORM_SUPERADMIN_EMAILS: z
     .string()
     .default("tools@pontoumdigital.com.br")

@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { env } from "../config/env.js";
 import { supabaseAdmin, supabaseAnon } from "../lib/supabase.js";
 import { withTimeout } from "../lib/with-timeout.js";
+import { jwtVerify } from "jose";
 
 export type AuthenticatedRequest = Request & {
   auth: {
@@ -62,6 +63,24 @@ function cacheSet(token: string, userId: string, email: string | null) {
   authCache.set(token, { expiresAt: Date.now() + ttl, userId, email });
 }
 
+async function verifyBearerJwtLocal(token: string): Promise<{ userId: string; email: string | null } | null> {
+  const secret = env.SUPABASE_JWT_SECRET?.trim();
+  if (!secret) return null;
+  try {
+    const key = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, key, { algorithms: ["HS256"] });
+    const userId = typeof payload.sub === "string" ? payload.sub : null;
+    if (!userId) return null;
+    const email =
+      typeof (payload as Record<string, unknown>).email === "string"
+        ? ((payload as Record<string, unknown>).email as string)
+        : null;
+    return { userId, email };
+  } catch {
+    return null;
+  }
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const token = extractBearerToken(req.header("authorization"));
@@ -72,6 +91,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const cached = cacheGet(token);
     if (cached) {
       (req as AuthenticatedRequest).auth = { userId: cached.userId, token, email: cached.email };
+      return next();
+    }
+
+    const local = await verifyBearerJwtLocal(token);
+    if (local) {
+      (req as AuthenticatedRequest).auth = { userId: local.userId, token, email: local.email };
+      cacheSet(token, local.userId, local.email);
       return next();
     }
 
@@ -135,6 +161,16 @@ export async function ensurePlatformAdminBearer(
     const email = (cached.email ?? "").trim().toLowerCase();
     if (email && env.PLATFORM_SUPERADMIN_EMAILS.includes(email)) {
       return { ok: true, userId: cached.userId, token, email: cached.email };
+    }
+    return { ok: false, status: 403, body: { error: "FORBIDDEN", message: "Not a platform admin." } };
+  }
+
+  const local = await verifyBearerJwtLocal(token);
+  if (local) {
+    cacheSet(token, local.userId, local.email);
+    const email = (local.email ?? "").trim().toLowerCase();
+    if (email && env.PLATFORM_SUPERADMIN_EMAILS.includes(email)) {
+      return { ok: true, userId: local.userId, token, email: local.email };
     }
     return { ok: false, status: 403, body: { error: "FORBIDDEN", message: "Not a platform admin." } };
   }
