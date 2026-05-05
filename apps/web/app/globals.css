@@ -260,6 +260,17 @@ button.danger {
   overflow-x: auto;
 }
 
+/* Mantém colunas íntegras; quando faltar espaço, rolagem horizontal (evita quebra de layout). */
+.table-wrap > .table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.table-wrap > .table th,
+.table-wrap > .table td {
+  white-space: nowrap;
+}
+
 .breadcrumbs {
   display: flex;
   gap: 6px;
