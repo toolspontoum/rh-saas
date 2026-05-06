@@ -226,6 +226,7 @@ export default function TimeRegisterPage() {
   const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
   const [selfiePath, setSelfiePath] = useState<string | null>(null);
   const [selfieUploading, setSelfieUploading] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   const [adjustRow, setAdjustRow] = useState<WorkRow | null>(null);
   const [adjustType, setAdjustType] = useState<PunchAction>("clock_in");
@@ -413,7 +414,12 @@ export default function TimeRegisterPage() {
       });
       if (!put.ok) {
         const details = await put.text().catch(() => "");
-        throw new Error(`Falha no upload da selfie (${put.status}).${details ? ` ${details}` : ""}`);
+        console.error("[time-selfie-upload] storage error", { status: put.status, details });
+        throw new Error(
+          isPlatformAdmin
+            ? `Falha no upload da selfie (${put.status}).${details ? ` ${details}` : ""}`
+            : "Falha no upload da selfie (400)."
+        );
       }
       setSelfiePath(intent.path);
       return intent.path;
@@ -421,6 +427,12 @@ export default function TimeRegisterPage() {
       setSelfieUploading(false);
     }
   }
+
+  useEffect(() => {
+    apiFetch<{ isPlatformAdmin: boolean }>("/v1/platform/me")
+      .then((me) => setIsPlatformAdmin(Boolean(me.isPlatformAdmin)))
+      .catch(() => setIsPlatformAdmin(false));
+  }, []);
 
   async function loadData(targetUserId?: string, manageModeOverride?: boolean) {
     const qTarget = targetUserId ? `&targetUserId=${targetUserId}` : "";
