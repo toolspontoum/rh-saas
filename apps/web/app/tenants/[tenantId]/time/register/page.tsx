@@ -396,20 +396,25 @@ export default function TimeRegisterPage() {
 
     setSelfieUploading(true);
     try {
+      // Alguns browsers (ex.: iOS) lidam melhor com `File` do que `Blob` em `PUT`.
+      const file = new File([selfieBlob], "selfie.jpg", { type: selfieBlob.type || "image/jpeg" });
       const intent = await apiFetch<{ path: string; signedUrl: string }>(`/v1/tenants/${tenantId}/time-selfies/upload-intent`, {
         method: "POST",
         body: JSON.stringify({
           fileName: "selfie.jpg",
-          mimeType: selfieBlob.type || "image/jpeg",
-          sizeBytes: selfieBlob.size
+          mimeType: file.type || "image/jpeg",
+          sizeBytes: file.size
         })
       });
       const put = await fetch(intent.signedUrl, {
         method: "PUT",
-        headers: { "Content-Type": selfieBlob.type || "image/jpeg" },
-        body: selfieBlob
+        headers: { "Content-Type": file.type || "image/jpeg" },
+        body: file
       });
-      if (!put.ok) throw new Error(`Falha no upload da selfie (${put.status}).`);
+      if (!put.ok) {
+        const details = await put.text().catch(() => "");
+        throw new Error(`Falha no upload da selfie (${put.status}).${details ? ` ${details}` : ""}`);
+      }
       setSelfiePath(intent.path);
       return intent.path;
     } finally {
