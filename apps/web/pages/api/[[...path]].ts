@@ -230,7 +230,9 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           status: typeof q.status === "string" ? q.status : undefined,
           search: typeof q.search === "string" ? q.search : undefined,
           page: typeof q.page === "string" ? q.page : undefined,
-          pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined
+          pageSize: typeof q.pageSize === "string" ? q.pageSize : undefined,
+          includePurgedProfiles: typeof q.includePurgedProfiles === "string" ? q.includePurgedProfiles : undefined,
+          includeAuthMeta: typeof q.includeAuthMeta === "string" ? q.includeAuthMeta : undefined
         }, xCompany);
         return res.status(out.status).json(out.body);
       }
@@ -957,6 +959,63 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         xWebEmp
       );
       return res.status(outEmp.status).json(outEmp.body);
+    }
+
+    /** POST /v1/tenants/:tenantId/employee-profiles/bulk — evita cold start do Express (504 em Colaboradores / Registro de ponto). */
+    if (
+      req.method === "POST" &&
+      segments.length === 5 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "employee-profiles" &&
+      segments[4] === "bulk"
+    ) {
+      const tenantBulk = segments[2] ?? "";
+      const companyRawBulk = req.headers["x-tenant-company-id"];
+      const xCompanyBulk =
+        typeof companyRawBulk === "string"
+          ? companyRawBulk
+          : Array.isArray(companyRawBulk)
+            ? companyRawBulk[0]
+            : undefined;
+      const { runTenantEmployeeProfilesBulkPost } = await import("@vv/api/run-tenant-writes");
+      const bodyBulk = await readJsonBody(req);
+      const outBulk = await runTenantEmployeeProfilesBulkPost(
+        headerAuthorization(req),
+        tenantBulk,
+        bodyBulk,
+        xCompanyBulk
+      );
+      return res.status(outBulk.status).json(outBulk.body);
+    }
+
+    /** POST /v1/tenants/:tenantId/users/access-meta/bulk */
+    if (
+      req.method === "POST" &&
+      segments.length === 6 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "users" &&
+      segments[4] === "access-meta" &&
+      segments[5] === "bulk"
+    ) {
+      const tenantMeta = segments[2] ?? "";
+      const companyRawMeta = req.headers["x-tenant-company-id"];
+      const xCompanyMeta =
+        typeof companyRawMeta === "string"
+          ? companyRawMeta
+          : Array.isArray(companyRawMeta)
+            ? companyRawMeta[0]
+            : undefined;
+      const { runTenantUsersAccessMetaBulkPost } = await import("@vv/api/run-tenant-writes");
+      const bodyMeta = await readJsonBody(req);
+      const outMeta = await runTenantUsersAccessMetaBulkPost(
+        headerAuthorization(req),
+        tenantMeta,
+        bodyMeta,
+        xCompanyMeta
+      );
+      return res.status(outMeta.status).json(outMeta.body);
     }
 
     /** POST /v1/tenants/:tenantId/companies — criar empresa/projeto sem cold start. */
