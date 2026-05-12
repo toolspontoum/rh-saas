@@ -833,3 +833,67 @@ export async function runTenantNoticeDelete(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+/** POST /v1/tenants/:tenantId/employee-profiles/bulk */
+export async function runTenantEmployeeProfilesBulkPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: { targetUserIds?: unknown },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+
+  const raw = body.targetUserIds;
+  const targetUserIds = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+  if (targetUserIds.length === 0) {
+    return { status: 200, body: { items: {} } };
+  }
+
+  try {
+    const result = await workforceHandlers.bulkEmployeeProfiles({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      targetUserIds
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/users/access-meta/bulk */
+export async function runTenantUsersAccessMetaBulkPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: { targetUserIds?: unknown },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+
+  const raw = body.targetUserIds;
+  const targetUserIds = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
+  if (targetUserIds.length === 0) {
+    return { status: 200, body: { items: {} } };
+  }
+
+  try {
+    const result = await tenantUsersHandlers.bulkAccessMeta({
+      tenantId,
+      actorUserId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      targetUserIds
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
