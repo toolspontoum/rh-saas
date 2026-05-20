@@ -225,6 +225,8 @@ export class TenantUsersService {
     companyId?: string | null;
     targetUserId: string;
     reason: string;
+    mode?: "unlink" | "purge_account";
+    confirmPhrase?: string;
   }): Promise<{ ok: true }> {
     await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
       "owner",
@@ -248,7 +250,36 @@ export class TenantUsersService {
     }
 
     const isEmployee = target.roles.includes("employee");
+    const mode = input.mode ?? "purge_account";
+
+    if (isEmployee && mode === "unlink") {
+      await this.repository.unlinkEmployeeFromTenant({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        companyId: input.companyId ?? target.companyId,
+        reason: input.reason.trim()
+      });
+      await this.repository.insertAuditLog({
+        tenantId: input.tenantId,
+        companyId: input.companyId ?? target.companyId,
+        actorUserId: input.actorUserId,
+        action: "tenant.user.employee_unlinked",
+        resourceType: "tenant_user",
+        resourceId: input.targetUserId,
+        result: "success",
+        metadata: {
+          reason: input.reason.trim(),
+          previousStatus: target.status
+        }
+      });
+      return { ok: true };
+    }
+
     if (isEmployee) {
+      const confirm = (input.confirmPhrase ?? "").trim().toUpperCase();
+      if (confirm !== "DELETAR") {
+        throw new Error("DELETE_CONFIRM_PHRASE_REQUIRED");
+      }
       await this.repository.purgeCollaboratorData({
         tenantId: input.tenantId,
         userId: input.targetUserId,
@@ -265,7 +296,8 @@ export class TenantUsersService {
         result: "success",
         metadata: {
           reason: input.reason.trim(),
-          previousStatus: target.status
+          previousStatus: target.status,
+          mode: "purge_account"
         }
       });
       return { ok: true };
@@ -330,7 +362,10 @@ export class TenantUsersService {
     }
 
     if (!targetUserId && normalizedCpf) {
-      targetUserId = await this.repository.findUserIdByCpf(normalizedCpf);
+      targetUserId = await this.repository.findUserIdByCpfForTenant(input.tenantId, normalizedCpf);
+      if (!targetUserId) {
+        targetUserId = await this.repository.findUserIdByCpf(normalizedCpf);
+      }
     }
 
     if (!targetUserId) {

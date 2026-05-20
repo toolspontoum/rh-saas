@@ -35,7 +35,9 @@ const deleteUserSchema = z.object({
   actorUserId: z.string().uuid(),
   companyId: z.string().uuid().nullable().optional(),
   targetUserId: z.string().uuid(),
-  reason: z.string().max(400)
+  reason: z.string().max(400),
+  mode: z.enum(["unlink", "purge_account"]).default("purge_account"),
+  confirmPhrase: z.string().max(40).optional()
 });
 
 const upsertEmployeeSchema = z.object({

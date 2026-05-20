@@ -616,12 +616,17 @@ export async function runTenantUserDelete(
   });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
+    const modeRaw = body.mode;
+    const mode =
+      modeRaw === "unlink" || modeRaw === "purge_account" ? modeRaw : "purge_account";
     const result = await tenantUsersHandlers.deleteUser({
       tenantId,
       actorUserId: s.userId,
       companyId: scope.companyId ?? undefined,
       targetUserId,
-      reason: typeof body.reason === "string" ? body.reason : ""
+      reason: typeof body.reason === "string" ? body.reason : "",
+      mode,
+      confirmPhrase: typeof body.confirmPhrase === "string" ? body.confirmPhrase : undefined
     });
     return { status: 200, body: result };
   } catch (error) {

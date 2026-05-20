@@ -1697,7 +1697,9 @@ apiRouter.delete("/v1/tenants/:tenantId/users/:targetUserId", requireAuth, async
       actorUserId: (req as AuthenticatedRequest).auth.userId,
       companyId: getTenantCompanyId(req),
       targetUserId: req.params.targetUserId,
-      reason: req.body?.reason
+      reason: req.body?.reason,
+      mode: req.body?.mode,
+      confirmPhrase: req.body?.confirmPhrase
     });
     return res.status(200).json(result);
   } catch (error) {
