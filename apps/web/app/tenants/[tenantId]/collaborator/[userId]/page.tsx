@@ -97,7 +97,7 @@ type Paginated<T> = { items: T[] };
 
 type ProfileForm = {
   fullName: string;
-  personalEmail: string;
+  accountEmail: string;
   cpf: string;
   phone: string;
   department: string;
@@ -179,7 +179,7 @@ const tabDocTypes: Record<Exclude<DocTabKey, "baixar_documentos">, string[]> = {
 
 const emptyProfile: ProfileForm = {
   fullName: "",
-  personalEmail: "",
+  accountEmail: "",
   cpf: "",
   phone: "",
   department: "",
@@ -249,8 +249,8 @@ export default function CollaboratorDetailsPage() {
 
   const collaboratorName = useMemo(() => profile.fullName || user?.fullName || "", [profile.fullName, user?.fullName]);
   const collaboratorEmail = useMemo(
-    () => (profile.personalEmail || user?.email || "").toLowerCase(),
-    [profile.personalEmail, user?.email]
+    () => (profile.accountEmail || user?.email || "").toLowerCase(),
+    [profile.accountEmail, user?.email]
   );
 
   const availableDocTypes = useMemo(() => {
@@ -293,13 +293,13 @@ export default function CollaboratorDetailsPage() {
     setPayslips(paysData.items);
 
     const mergedFullName = profileData?.fullName ?? found?.fullName ?? "";
-    const mergedEmail = profileData?.authEmail ?? profileData?.personalEmail ?? found?.email ?? "";
+    const mergedEmail = profileData?.authEmail ?? found?.email ?? profileData?.personalEmail ?? "";
     const mergedCpf = profileData?.cpf ?? found?.cpf ?? "";
     const mergedPhone = profileData?.phone ?? found?.phone ?? "";
 
     setProfile({
       fullName: mergedFullName,
-      personalEmail: mergedEmail,
+      accountEmail: mergedEmail,
       cpf: formatCpf(mergedCpf),
       phone: formatPhoneBr(mergedPhone),
       department: profileData?.department ?? "",
@@ -343,7 +343,6 @@ export default function CollaboratorDetailsPage() {
         body: JSON.stringify({
           targetUserId: userId,
           fullName: profile.fullName || null,
-          personalEmail: profile.personalEmail || null,
           cpf: onlyDigits(profile.cpf) || null,
           phone: onlyDigits(profile.phone) || null,
           department: profile.department || null,
@@ -771,13 +770,11 @@ export default function CollaboratorDetailsPage() {
                 />
               </label>
               <label>
-                E-mail pessoal
-                <input
-                  type="email"
-                  value={profile.personalEmail}
-                  disabled={!isEditing}
-                  onChange={(e) => setProfile((c) => ({ ...c, personalEmail: e.target.value }))}
-                />
+                E-mail da conta (login)
+                <input type="email" value={profile.accountEmail} readOnly disabled className="readonly-field" />
+                <span className="muted small">
+                  E-mail de acesso ao portal (conta Supabase). Para alterar, use redefinição de senha/convite pelo RH.
+                </span>
               </label>
             </div>
 

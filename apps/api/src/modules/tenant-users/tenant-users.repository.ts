@@ -55,6 +55,17 @@ type CandidateLookupRow = {
   contract: string | null;
 };
 
+/** E-mail exibido no portal: sempre o da conta Supabase (login); personal_email fica legado. */
+function resolveTenantUserDisplayEmail(
+  profile: { data_purged_at?: string | null; personal_email?: string | null },
+  authEmail: string | null | undefined
+): string | null {
+  if (profile.data_purged_at) return null;
+  const account = authEmail?.trim().toLowerCase() || null;
+  if (account) return account;
+  return profile.personal_email?.trim().toLowerCase() || null;
+}
+
 export class TenantUsersRepository {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -216,10 +227,7 @@ export class TenantUsersRepository {
         userId: row.user_id,
         tenantId: input.tenantId,
         companyId: profile.company_id,
-        email:
-          profile.data_purged_at
-            ? null
-            : (profile.personal_email ?? authMeta?.email ?? null),
+        email: resolveTenantUserDisplayEmail(profile, authMeta?.email),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -292,7 +300,7 @@ export class TenantUsersRepository {
         userId: profile.user_id,
         tenantId,
         companyId: profile.company_id,
-        email: profile.data_purged_at ? null : (profile.personal_email ?? email),
+        email: resolveTenantUserDisplayEmail(profile, email),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -353,7 +361,7 @@ export class TenantUsersRepository {
       userId,
       tenantId,
       companyId: profile.company_id,
-      email: profile.data_purged_at ? null : (profile.personal_email ?? authData.user?.email ?? null),
+      email: resolveTenantUserDisplayEmail(profile, authData.user?.email ?? null),
       fullName: profile.full_name,
       cpf: profile.cpf,
       phone: profile.phone,
@@ -821,7 +829,7 @@ export class TenantUsersRepository {
         data_purged_at: null,
         cpf: normalizedCpf,
         phone: normalizedPhone,
-        personal_email: normalizedEmail
+        personal_email: null
       },
       { onConflict: "tenant_id,user_id" }
     );
@@ -958,7 +966,7 @@ export class TenantUsersRepository {
     return {
       exists: existsForEmployeePrereg,
       userId: outUserId,
-      email: profile?.personal_email ?? authUser?.email ?? normalizedEmailHint,
+      email: authUser?.email?.trim().toLowerCase() ?? profile?.personal_email ?? normalizedEmailHint,
       fullName:
         profile?.full_name ??
         candidateProfile?.full_name ??

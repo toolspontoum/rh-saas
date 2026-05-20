@@ -194,7 +194,6 @@ export default function EmployeeProfilePage() {
         method: "PUT",
         body: JSON.stringify({
           fullName: form.fullName || null,
-          personalEmail: (authEmail || form.personalEmail || "").trim().toLowerCase() || null,
           cpf: onlyDigits(form.cpf) || null,
           phone: onlyDigits(form.phone) || null,
           department: form.department || null,

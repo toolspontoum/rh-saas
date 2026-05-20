@@ -38,7 +38,7 @@ type OpenFileUrl = {
 
 type ProfileForm = {
   fullName: string;
-  personalEmail: string;
+  accountEmail: string;
   cpf: string;
   phone: string;
   department: string;
@@ -66,7 +66,7 @@ const contractOptions = ["CLT", "PJ", "Estágio", "Freelancer"];
 
 const emptyProfile: ProfileForm = {
   fullName: "",
-  personalEmail: "",
+  accountEmail: "",
   cpf: "",
   phone: "",
   department: "",
@@ -181,11 +181,11 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false);
 
   const collaboratorName = useMemo(() => profile.fullName.trim(), [profile.fullName]);
-  const collaboratorEmail = useMemo(() => profile.personalEmail.trim().toLowerCase(), [profile.personalEmail]);
+  const collaboratorEmail = useMemo(() => profile.accountEmail.trim().toLowerCase(), [profile.accountEmail]);
 
   function validateProfile(): string | null {
     if (!collaboratorName) return "Informe o nome completo.";
-    if (!collaboratorEmail) return "Informe o e-mail pessoal.";
+    if (!collaboratorEmail) return "Informe o e-mail da conta (login no portal).";
 
     if (profile.cpf.trim()) {
       if (onlyDigits(profile.cpf).length !== 11) return "CPF deve conter 11 dígitos.";
@@ -227,7 +227,6 @@ export default function OnboardingPage() {
         body: JSON.stringify({
           targetUserId: linked.userId,
           fullName: collaboratorName,
-          personalEmail: collaboratorEmail,
           cpf: onlyDigits(profile.cpf) || null,
           phone: onlyDigits(profile.phone) || null,
           department: profile.department || null,
@@ -527,11 +526,11 @@ export default function OnboardingPage() {
               />
             </label>
             <label>
-              E-mail pessoal
+              E-mail da conta (login no portal)
               <input
                 type="email"
-                value={profile.personalEmail}
-                onChange={(e) => setProfile((c) => ({ ...c, personalEmail: e.target.value }))}
+                value={profile.accountEmail}
+                onChange={(e) => setProfile((c) => ({ ...c, accountEmail: e.target.value }))}
               />
             </label>
           </div>

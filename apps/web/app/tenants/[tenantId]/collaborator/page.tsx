@@ -319,7 +319,7 @@ export default function CollaboratorListPage() {
             <thead>
               <tr>
                 <SortableTh label="Nome" column="fullName" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
-                <SortableTh label="E-mail" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="E-mail da conta" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Telefone" column="phone" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Departamento" column="department" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
