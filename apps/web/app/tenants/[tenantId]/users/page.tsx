@@ -7,7 +7,9 @@ import { Mail } from "lucide-react";
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
 import { EmptyState } from "../../../../components/empty-state";
+import { SortableTh } from "../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../lib/api";
+import { useTableSort } from "../../../../lib/table-sort";
 import { formatCpf, formatPhoneBr, isValidCpf, isValidPhoneBr, onlyDigits } from "../../../../lib/br-format";
 import { roleLabel as toRoleLabel } from "../../../../lib/role-labels";
 import { getStoredTenantCompanyId } from "../../../../lib/tenant-company-scope";
@@ -82,6 +84,27 @@ const formDefault = (prepostoCompanyId: string): NewMgmtUserForm => ({
 
 const isBackofficeMgmt = (user: TenantUser) =>
   user.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
+
+type UserSortColumn = "fullName" | "email" | "cpf" | "status" | "company" | "roles";
+
+function mgmtStatusLabel(status: TenantUser["status"]): string {
+  if (status === "active") return "Ativo";
+  if (status === "inactive") return "Inativo";
+  return "Desligado";
+}
+
+function formatMgmtRoles(user: TenantUser): string {
+  return user.roles
+    .filter((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role))
+    .map((role) => {
+      if (role === "manager") return mgmtRoleLabel.manager;
+      if (role === "admin") return mgmtRoleLabel.admin;
+      if (role === "analyst") return mgmtRoleLabel.analyst;
+      if (role === "preposto") return mgmtRoleLabel.preposto;
+      return toRoleLabel(role);
+    })
+    .join(", ");
+}
 
 export default function TenantUsersPage() {
   const params = useParams<{ tenantId: string }>();
@@ -288,6 +311,20 @@ export default function TenantUsersPage() {
       ? prepostoRows
       : items.map((u) => ({ ...u, rowKey: u.userId }));
 
+  const sortGetters = useMemo(
+    () => ({
+      fullName: (item: TenantUser) => item.fullName,
+      email: (item: TenantUser) => item.email,
+      cpf: (item: TenantUser) => item.cpf,
+      status: (item: TenantUser) => mgmtStatusLabel(item.status),
+      company: (item: TenantUser & { assignmentCompanyName?: string }) => item.assignmentCompanyName,
+      roles: (item: TenantUser) => formatMgmtRoles(item)
+    }),
+    []
+  );
+
+  const { sort, toggleSort, sortedRows } = useTableSort(tableRows, sortGetters, "fullName");
+
   return (
     <main className="container wide stack" style={{ margin: 0 }}>
       <Breadcrumbs items={[{ label: "Visao Geral", href: `/tenants/${tenantId}/dashboard` }, { label: "Usuarios" }]} />
@@ -410,37 +447,31 @@ export default function TenantUsersPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th>CPF</th>
-                <th>Status</th>
-                {statusTab === "preposto" ? <th>Empresa / projeto</th> : null}
-                <th>Perfis</th>
+                <SortableTh label="Nome" column="fullName" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="E-mail" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                {statusTab === "preposto" ? (
+                  <SortableTh label="Empresa / projeto" column="company" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                ) : null}
+                <SortableTh label="Perfis" column="roles" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <th>Acoes</th>
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((item) => {
-                const roles = item.roles
-                  .filter((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role))
-                  .map((role) => {
-                    if (role === "manager") return mgmtRoleLabel.manager;
-                    if (role === "admin") return mgmtRoleLabel.admin;
-                    if (role === "analyst") return mgmtRoleLabel.analyst;
-                    if (role === "preposto") return mgmtRoleLabel.preposto;
-                    return toRoleLabel(role);
-                  });
+              {sortedRows.map((item) => {
+                const rolesLabel = formatMgmtRoles(item);
 
                 return (
                   <tr key={item.rowKey}>
                     <td>{item.fullName ?? "-"}</td>
                     <td>{item.email ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
-                    <td>{item.status === "active" ? "Ativo" : item.status === "inactive" ? "Inativo" : "Desligado"}</td>
+                    <td>{mgmtStatusLabel(item.status)}</td>
                     {statusTab === "preposto" ? (
                       <td>{(item as PrepostoRow).assignmentCompanyName ?? "-"}</td>
                     ) : null}
-                    <td>{roles.join(", ") || "-"}</td>
+                    <td>{rolesLabel || "-"}</td>
                     <td>
                       <div className="row">
                         <button

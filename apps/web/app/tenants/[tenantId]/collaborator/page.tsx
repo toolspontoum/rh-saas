@@ -8,7 +8,9 @@ import { Eye, Mail, Pencil, Trash2 } from "lucide-react";
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
 import { EmptyState } from "../../../../components/empty-state";
+import { SortableTh } from "../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../lib/api";
+import { useTableSort } from "../../../../lib/table-sort";
 
 type TenantUser = {
   userId: string;
@@ -33,8 +35,28 @@ type Paginated<T> = { items: T[] };
 type BulkEmployeeProfiles = { items: Record<string, EmployeeProfile> };
 type BulkAccessMeta = { items: Record<string, { email: string | null; lastSignInAt: string | null }> };
 
-const COLLABORATOR_DELETE_WARNING =
-  "Excluir um colaborador é uma ação que não pode ser desfeita, ao prosseguir com a exclusão você irá apagar definitivamente todos os dados e registros desse colaborador.";
+const UNLINK_WARNING =
+  "Desvincular remove o colaborador deste projeto/contrato. A conta permanece no portal e o acesso volta ao perfil de candidato. Dados históricos (documentos, ponto, comunicados) permanecem vinculados ao usuário.";
+
+const PURGE_ACCOUNT_WARNING =
+  "Excluir a conta apaga e anonimiza os dados cadastrados deste colaborador neste projeto: perfil, documentos, registros de ponto e avisos vinculados. Esta ação não pode ser desfeita.";
+
+type CollaboratorSortColumn =
+  | "fullName"
+  | "email"
+  | "cpf"
+  | "phone"
+  | "department"
+  | "contract"
+  | "status"
+  | "lastAccess";
+
+function collaboratorStatusLabel(item: TenantUser): string {
+  if (item.dataPurgedAt) return "Excluído (anonimizado)";
+  if (item.status === "active") return "Ativo";
+  if (item.status === "inactive") return "Inativo";
+  return "Desligado";
+}
 
 export default function CollaboratorListPage() {
   const params = useParams<{ tenantId: string }>();
@@ -50,6 +72,8 @@ export default function CollaboratorListPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"unlink" | "purge_account" | null>(null);
+  const [deleteConfirmPhrase, setDeleteConfirmPhrase] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [resendInviteUserId, setResendInviteUserId] = useState<string | null>(null);
   const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
@@ -137,6 +161,25 @@ export default function CollaboratorListPage() {
     });
   }, [items, profiles, statusFilter, contractFilter, departmentFilter, search]);
 
+  const sortGetters = useMemo(
+    () => ({
+      fullName: (item: TenantUser) => item.fullName,
+      email: (item: TenantUser) => item.email ?? accessMeta[item.userId]?.email,
+      cpf: (item: TenantUser) => item.cpf,
+      phone: (item: TenantUser) => item.phone,
+      department: (item: TenantUser) => profiles[item.userId]?.department,
+      contract: (item: TenantUser) => profiles[item.userId]?.contractType,
+      status: (item: TenantUser) => collaboratorStatusLabel(item),
+      lastAccess: (item: TenantUser) => {
+        const iso = accessMeta[item.userId]?.lastSignInAt ?? item.lastSignInAt;
+        return iso ? new Date(iso).getTime() : null;
+      }
+    }),
+    [accessMeta, profiles]
+  );
+
+  const { sort, toggleSort, sortedRows } = useTableSort(filtered, sortGetters, "fullName");
+
   function formatLastAccess(iso: string | null | undefined): string {
     if (!iso) return "—";
     try {
@@ -181,19 +224,42 @@ export default function CollaboratorListPage() {
     }
   }
 
+  function openDeleteModal(target: TenantUser, mode: "unlink" | "purge_account") {
+    setDeleteTarget(target);
+    setDeleteMode(mode);
+    setDeleteConfirmPhrase("");
+  }
+
+  function closeDeleteModal() {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeleteMode(null);
+    setDeleteConfirmPhrase("");
+    setError(null);
+  }
+
   async function confirmDeleteCollaborator() {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !deleteMode) return;
+    if (deleteMode === "purge_account" && deleteConfirmPhrase.trim().toUpperCase() !== "DELETAR") {
+      setError('Digite "DELETAR" para confirmar a exclusão da conta.');
+      return;
+    }
     setDeleteBusy(true);
     setError(null);
     try {
+      const reason =
+        deleteMode === "unlink"
+          ? "Desvinculação do colaborador confirmada no painel; usuário retorna ao portal de candidato."
+          : "Exclusão definitiva da conta confirmada no painel; dados anonimizados conforme política da plataforma.";
       await apiFetch(`/v1/tenants/${tenantId}/users/${deleteTarget.userId}`, {
         method: "DELETE",
         body: JSON.stringify({
-          reason:
-            "Exclusão definitiva do colaborador confirmada no painel; dados anonimizados ou removidos conforme política da plataforma."
+          mode: deleteMode,
+          reason,
+          confirmPhrase: deleteMode === "purge_account" ? deleteConfirmPhrase.trim() : undefined
         })
       });
-      setDeleteTarget(null);
+      closeDeleteModal();
       await loadData();
     } catch (err) {
       setError((err as Error).message);
@@ -252,19 +318,19 @@ export default function CollaboratorListPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th>CPF</th>
-                <th>Telefone</th>
-                <th>Departamento</th>
-                <th>Contrato</th>
-                <th>Status</th>
-                <th>Último acesso</th>
+                <SortableTh label="Nome" column="fullName" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="E-mail" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Telefone" column="phone" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Departamento" column="department" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Contrato" column="contract" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Último acesso" column="lastAccess" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
+              {sortedRows.map((item) => {
                 const profile = profiles[item.userId];
                 const meta = accessMeta[item.userId];
                 return (
@@ -330,11 +396,21 @@ export default function CollaboratorListPage() {
                         </button>
                         <button
                           type="button"
-                          className="icon-btn icon-danger"
-                          title="Excluir"
-                          aria-label="Excluir"
+                          className="secondary"
+                          style={{ padding: "4px 8px", fontSize: "0.8rem" }}
+                          title="Desvincular do projeto"
                           disabled={Boolean(item.dataPurgedAt)}
-                          onClick={() => setDeleteTarget(item)}
+                          onClick={() => openDeleteModal(item, "unlink")}
+                        >
+                          Desvincular
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-danger"
+                          title="Excluir conta e dados"
+                          aria-label="Excluir conta e dados"
+                          disabled={Boolean(item.dataPurgedAt)}
+                          onClick={() => openDeleteModal(item, "purge_account")}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -349,24 +425,48 @@ export default function CollaboratorListPage() {
       </div>
 
       <ConfirmModal
-        open={!!deleteTarget}
-        title="Excluir colaborador"
+        open={!!deleteTarget && !!deleteMode}
+        title={deleteMode === "unlink" ? "Desvincular colaborador" : "Excluir conta do colaborador"}
         message={
           deleteTarget
-            ? `Confirma a exclusão definitiva de ${deleteTarget.fullName ?? deleteTarget.email ?? "este colaborador"}?`
+            ? deleteMode === "unlink"
+              ? `Desvincular ${deleteTarget.fullName ?? deleteTarget.email ?? "este colaborador"} deste projeto?`
+              : `Excluir a conta e os dados de ${deleteTarget.fullName ?? deleteTarget.email ?? "este colaborador"}?`
             : ""
         }
-        confirmLabel={deleteBusy ? "A excluir..." : "Excluir definitivamente"}
+        confirmLabel={
+          deleteBusy
+            ? deleteMode === "unlink"
+              ? "A desvincular..."
+              : "A excluir..."
+            : deleteMode === "unlink"
+              ? "Desvincular"
+              : "Excluir conta"
+        }
         cancelLabel="Cancelar"
-        danger
+        danger={deleteMode === "purge_account"}
         busy={deleteBusy}
-        busyLabel="A excluir..."
-        onCancel={() => (deleteBusy ? null : setDeleteTarget(null))}
+        busyLabel={deleteMode === "unlink" ? "A desvincular..." : "A excluir..."}
+        error={error}
+        onCancel={closeDeleteModal}
         onConfirm={() => void confirmDeleteCollaborator()}
       >
         <p className="muted" style={{ marginTop: 8, lineHeight: 1.45 }}>
-          {COLLABORATOR_DELETE_WARNING}
+          {deleteMode === "unlink" ? UNLINK_WARNING : PURGE_ACCOUNT_WARNING}
         </p>
+        {deleteMode === "purge_account" ? (
+          <label className="stack" style={{ marginTop: 12, gap: 6 }}>
+            <span className="small muted">Digite DELETAR para confirmar</span>
+            <input
+              type="text"
+              value={deleteConfirmPhrase}
+              placeholder="DELETAR"
+              autoComplete="off"
+              disabled={deleteBusy}
+              onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
+            />
+          </label>
+        ) : null}
       </ConfirmModal>
 
       <ConfirmModal

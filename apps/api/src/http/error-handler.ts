@@ -97,6 +97,14 @@ const knownErrors = new Map<string, ApiErrorShape>([
   ["SELF_DELETE_NOT_ALLOWED", { status: 400, code: "SELF_DELETE_NOT_ALLOWED", message: "Usuario nao pode remover o proprio acesso." }],
   ["DELETE_REASON_REQUIRED", { status: 400, code: "DELETE_REASON_REQUIRED", message: "Motivo da exclusao obrigatorio com pelo menos 5 caracteres." }],
   [
+    "DELETE_CONFIRM_PHRASE_REQUIRED",
+    {
+      status: 400,
+      code: "DELETE_CONFIRM_PHRASE_REQUIRED",
+      message: "Para excluir a conta, digite DELETAR no campo de confirmacao."
+    }
+  ],
+  [
     "USER_HAS_LINKED_RECORDS",
     { status: 409, code: "USER_HAS_LINKED_RECORDS", message: "Usuario possui registros vinculados e nao pode ser removido do assinante." }
   ],

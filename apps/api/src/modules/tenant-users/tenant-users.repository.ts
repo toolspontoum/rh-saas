@@ -55,12 +55,6 @@ type CandidateLookupRow = {
   contract: string | null;
 };
 
-type AuthUserRow = {
-  id: string;
-  email: string | null;
-  lastSignInAt: string | null;
-};
-
 export class TenantUsersRepository {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -432,6 +426,53 @@ export class TenantUsersRepository {
     return false;
   }
 
+  async unlinkEmployeeFromTenant(input: {
+    tenantId: string;
+    userId: string;
+    companyId: string | null;
+    reason: string;
+  }): Promise<void> {
+    const companyId =
+      input.companyId ?? (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
+
+    const { error: roleErr } = await this.db
+      .from("user_tenant_roles")
+      .delete()
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .eq("role", "employee");
+    if (roleErr) throw roleErr;
+
+    const { error: pErr } = await this.db
+      .from("tenant_user_profiles")
+      .update({
+        status: "offboarded",
+        offboard_reason: input.reason,
+        offboarded_at: new Date().toISOString(),
+        department: null,
+        position_title: null,
+        contract_type: null,
+        admission_date: null,
+        base_salary: null,
+        employee_tags: []
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .eq("company_id", companyId);
+    if (pErr) throw pErr;
+
+    const { error: viewerRoleErr } = await this.db.from("user_tenant_roles").upsert(
+      {
+        tenant_id: input.tenantId,
+        user_id: input.userId,
+        role: "viewer",
+        is_active: true
+      },
+      { onConflict: "tenant_id,user_id,role" }
+    );
+    if (viewerRoleErr) throw viewerRoleErr;
+  }
+
   async purgeCollaboratorData(input: {
     tenantId: string;
     userId: string;
@@ -777,6 +818,7 @@ export class TenantUsersRepository {
         status: "active",
         offboard_reason: null,
         offboarded_at: null,
+        data_purged_at: null,
         cpf: normalizedCpf,
         phone: normalizedPhone,
         personal_email: normalizedEmail
