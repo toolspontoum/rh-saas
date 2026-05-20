@@ -772,9 +772,6 @@ export default function CollaboratorDetailsPage() {
               <label>
                 E-mail da conta (login)
                 <input type="email" value={profile.accountEmail} readOnly disabled className="readonly-field" />
-                <span className="muted small">
-                  E-mail de acesso ao portal (conta Supabase). Para alterar, use redefinição de senha/convite pelo RH.
-                </span>
               </label>
             </div>
 
