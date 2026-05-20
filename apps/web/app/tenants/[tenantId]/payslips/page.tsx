@@ -30,6 +30,10 @@ type Paginated<T> = { items: T[] };
 
 type TenantContext = { roles: string[] };
 
+type OpenFileUrl = {
+  signedUrl: string;
+};
+
 function formatReferenceMonthBr(value: string): string {
   const match = /^(\d{4})-(\d{2})$/.exec(value);
   if (!match) return value;
@@ -45,6 +49,7 @@ export default function PayslipsPage() {
   const [context, setContext] = useState<TenantContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [viewingPayslipId, setViewingPayslipId] = useState<string | null>(null);
 
   const [searchFilter, setSearchFilter] = useSavedState(`pays_search_${tenantId}`, "");
   const [contractFilter, setContractFilter] = useSavedState(`pays_contract_${tenantId}`, "");
@@ -129,15 +134,27 @@ export default function PayslipsPage() {
     loadData().catch((err: Error) => setError(err.message));
   }, [loadData]);
 
-  async function acknowledge(id: string) {
+  async function viewPayslip(item: Payslip) {
     setError(null);
     setOkMsg(null);
+    setViewingPayslipId(item.id);
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/payslips/${id}/acknowledge`, { method: "POST" });
-      setOkMsg("Ciência do contracheque registrada.");
-      await loadData();
+      const result = await apiFetch<OpenFileUrl>(`/v1/tenants/${tenantId}/payslips/${item.id}/open`);
+      const opened = window.open(result.signedUrl, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        setError("O navegador bloqueou a abertura do arquivo. Permita pop-ups para este site e tente novamente.");
+        return;
+      }
+
+      if (isEmployeeOnly && !item.acknowledgedAt) {
+        await apiFetch(`/v1/tenants/${tenantId}/payslips/${item.id}/acknowledge`, { method: "POST" });
+        setOkMsg("Contracheque aberto. Ciência registrada.");
+        await loadData();
+      }
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setViewingPayslipId(null);
     }
   }
 
@@ -260,7 +277,17 @@ export default function PayslipsPage() {
                   <td>{item.collaboratorEmail}</td>
                   <td>{item.contract ?? "-"}</td>
                   <td>{formatReferenceMonthBr(item.referenceMonth)}</td>
-                  <td>{item.fileName}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="link-button"
+                      title="Abrir contracheque"
+                      disabled={viewingPayslipId === item.id}
+                      onClick={() => void viewPayslip(item)}
+                    >
+                      {item.fileName}
+                    </button>
+                  </td>
                   {isManagement ? (
                     <td>
                       <span className="small">{item.aiLinkStatus ?? "—"}</span>
@@ -274,10 +301,16 @@ export default function PayslipsPage() {
                   <td>
                     {item.acknowledgedAt ? (
                       <span className="badge">Ciente em {new Date(item.acknowledgedAt).toLocaleDateString("pt-BR")}</span>
-                    ) : (
-                      <button className="secondary" onClick={() => acknowledge(item.id)}>
-                        Confirmar ciência
+                    ) : isEmployeeOnly ? (
+                      <button
+                        className="secondary"
+                        disabled={viewingPayslipId === item.id}
+                        onClick={() => void viewPayslip(item)}
+                      >
+                        {viewingPayslipId === item.id ? "Abrindo…" : "Visualizar"}
                       </button>
+                    ) : (
+                      <span className="muted">Pendente</span>
                     )}
                   </td>
                 </tr>
