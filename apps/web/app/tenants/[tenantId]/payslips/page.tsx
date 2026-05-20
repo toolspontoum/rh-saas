@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
 import { onlyDigits } from "../../../../lib/br-format";
+import { openBlankTabForAsyncUrl, openUrlInNewTab } from "../../../../lib/open-url";
 import { useSavedState } from "../../../../lib/saved-state";
 
 type Payslip = {
@@ -30,6 +31,10 @@ type Paginated<T> = { items: T[] };
 
 type TenantContext = { roles: string[] };
 
+type OpenFileUrl = {
+  signedUrl: string;
+};
+
 function formatReferenceMonthBr(value: string): string {
   const match = /^(\d{4})-(\d{2})$/.exec(value);
   if (!match) return value;
@@ -45,6 +50,7 @@ export default function PayslipsPage() {
   const [context, setContext] = useState<TenantContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [viewingPayslipId, setViewingPayslipId] = useState<string | null>(null);
 
   const [searchFilter, setSearchFilter] = useSavedState(`pays_search_${tenantId}`, "");
   const [contractFilter, setContractFilter] = useSavedState(`pays_contract_${tenantId}`, "");
@@ -129,15 +135,35 @@ export default function PayslipsPage() {
     loadData().catch((err: Error) => setError(err.message));
   }, [loadData]);
 
-  async function acknowledge(id: string) {
+  async function viewPayslip(item: Payslip) {
     setError(null);
     setOkMsg(null);
+    setViewingPayslipId(item.id);
+    const pendingTab = openBlankTabForAsyncUrl();
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/payslips/${id}/acknowledge`, { method: "POST" });
-      setOkMsg("Ciência do contracheque registrada.");
-      await loadData();
+      const result = await apiFetch<OpenFileUrl>(`/v1/tenants/${tenantId}/payslips/${item.id}/open`);
+      openUrlInNewTab(result.signedUrl, pendingTab);
+
+      if (isEmployeeOnly && !item.acknowledgedAt) {
+        await apiFetch(`/v1/tenants/${tenantId}/payslips/${item.id}/acknowledge`, { method: "POST" });
+        const acknowledgedAt = new Date().toISOString();
+        const markAcknowledged = (row: Payslip) =>
+          row.id === item.id ? { ...row, acknowledgedAt } : row;
+        setItems((rows) => rows.map(markAcknowledged));
+        setAllItems((rows) => rows.map(markAcknowledged));
+        setOkMsg("Contracheque aberto. Ciência registrada.");
+      }
     } catch (err) {
+      if (pendingTab && !pendingTab.closed) {
+        try {
+          pendingTab.close();
+        } catch {
+          /* ignore */
+        }
+      }
       setError((err as Error).message);
+    } finally {
+      setViewingPayslipId(null);
     }
   }
 
@@ -260,7 +286,17 @@ export default function PayslipsPage() {
                   <td>{item.collaboratorEmail}</td>
                   <td>{item.contract ?? "-"}</td>
                   <td>{formatReferenceMonthBr(item.referenceMonth)}</td>
-                  <td>{item.fileName}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="link-button"
+                      title="Abrir contracheque"
+                      disabled={viewingPayslipId === item.id}
+                      onClick={() => void viewPayslip(item)}
+                    >
+                      {item.fileName}
+                    </button>
+                  </td>
                   {isManagement ? (
                     <td>
                       <span className="small">{item.aiLinkStatus ?? "—"}</span>
@@ -274,10 +310,16 @@ export default function PayslipsPage() {
                   <td>
                     {item.acknowledgedAt ? (
                       <span className="badge">Ciente em {new Date(item.acknowledgedAt).toLocaleDateString("pt-BR")}</span>
-                    ) : (
-                      <button className="secondary" onClick={() => acknowledge(item.id)}>
-                        Confirmar ciência
+                    ) : isEmployeeOnly ? (
+                      <button
+                        className="secondary"
+                        disabled={viewingPayslipId === item.id}
+                        onClick={() => void viewPayslip(item)}
+                      >
+                        {viewingPayslipId === item.id ? "Abrindo…" : "Visualizar"}
                       </button>
+                    ) : (
+                      <span className="muted">Pendente</span>
                     )}
                   </td>
                 </tr>

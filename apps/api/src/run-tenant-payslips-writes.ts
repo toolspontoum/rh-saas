@@ -70,3 +70,32 @@ export async function runTenantPayslipOpenGet(
   }
 }
 
+/** POST /v1/tenants/:tenantId/payslips/:payslipId/acknowledge — evita cold start Express na Vercel. */
+export async function runTenantPayslipAcknowledgePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  payslipId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+
+  try {
+    const result = await documentsPayslipsHandlers.acknowledgePayslip({
+      tenantId,
+      userId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      payslipId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+

@@ -55,6 +55,17 @@ type CandidateLookupRow = {
   contract: string | null;
 };
 
+/** E-mail exibido no portal: sempre o da conta Supabase (login); personal_email fica legado. */
+function resolveTenantUserDisplayEmail(
+  profile: { data_purged_at?: string | null; personal_email?: string | null },
+  authEmail: string | null | undefined
+): string | null {
+  if (profile.data_purged_at) return null;
+  const account = authEmail?.trim().toLowerCase() || null;
+  if (account) return account;
+  return profile.personal_email?.trim().toLowerCase() || null;
+}
+
 export class TenantUsersRepository {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -151,8 +162,8 @@ export class TenantUsersRepository {
       if (roleError) throw roleError;
       const roleRows = (roleData ?? []) as unknown as UserRoleRow[];
 
-      const authById = includeAuthMeta ? await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id)) : new Map();
-      let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById);
+      const authById = await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id));
+      let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById, includeAuthMeta);
       if (input.search) {
         items = this.filterTenantUsersBySearch(items, input.search);
       }
@@ -195,20 +206,22 @@ export class TenantUsersRepository {
 
     const profileByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
 
-    const authById = includeAuthMeta ? await this.fetchAuthUsersByIds(userIds) : new Map();
+    const authById = await this.fetchAuthUsersByIds(userIds);
     const grouped = new Map<string, TenantUser>();
 
     for (const row of rows) {
       const profile = profileByUserId.get(row.user_id);
       if (!profile) continue;
 
-      const authMeta = includeAuthMeta ? (authById.get(row.user_id) ?? null) : null;
+      const authMeta = authById.get(row.user_id) ?? null;
 
       const existing = grouped.get(row.user_id);
       if (existing) {
         existing.roles.push(row.role);
         existing.isAccessEnabled = existing.isAccessEnabled || row.is_active;
-        existing.lastSignInAt = existing.lastSignInAt ?? authMeta?.lastSignInAt ?? null;
+        if (includeAuthMeta) {
+          existing.lastSignInAt = existing.lastSignInAt ?? authMeta?.lastSignInAt ?? null;
+        }
         continue;
       }
 
@@ -216,10 +229,7 @@ export class TenantUsersRepository {
         userId: row.user_id,
         tenantId: input.tenantId,
         companyId: profile.company_id,
-        email:
-          profile.data_purged_at
-            ? null
-            : (profile.personal_email ?? authMeta?.email ?? null),
+        email: resolveTenantUserDisplayEmail(profile, authMeta?.email),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -228,7 +238,7 @@ export class TenantUsersRepository {
         offboardedAt: profile.offboarded_at,
         roles: [row.role],
         isAccessEnabled: row.is_active,
-        lastSignInAt: authMeta?.lastSignInAt ?? null
+        lastSignInAt: includeAuthMeta ? (authMeta?.lastSignInAt ?? null) : null
       });
     }
 
@@ -271,7 +281,8 @@ export class TenantUsersRepository {
     tenantId: string,
     orderedProfiles: TenantUserProfileRow[],
     roleRows: UserRoleRow[],
-    authById?: Map<string, { email: string | null; lastSignInAt: string | null }>
+    authById?: Map<string, { email: string | null; lastSignInAt: string | null }>,
+    includeAuthMeta = true
   ): Promise<TenantUser[]> {
     const rolesByUser = new Map<string, UserRoleRow[]>();
     for (const row of roleRows) {
@@ -292,7 +303,7 @@ export class TenantUsersRepository {
         userId: profile.user_id,
         tenantId,
         companyId: profile.company_id,
-        email: profile.data_purged_at ? null : (profile.personal_email ?? email),
+        email: resolveTenantUserDisplayEmail(profile, email),
         fullName: profile.full_name,
         cpf: profile.cpf,
         phone: profile.phone,
@@ -301,7 +312,7 @@ export class TenantUsersRepository {
         offboardedAt: profile.offboarded_at,
         roles: [],
         isAccessEnabled: false,
-        lastSignInAt: authMeta?.lastSignInAt ?? null,
+        lastSignInAt: includeAuthMeta ? (authMeta?.lastSignInAt ?? null) : null,
         dataPurgedAt: profile.data_purged_at ?? null
       };
 
@@ -353,7 +364,7 @@ export class TenantUsersRepository {
       userId,
       tenantId,
       companyId: profile.company_id,
-      email: profile.data_purged_at ? null : (profile.personal_email ?? authData.user?.email ?? null),
+      email: resolveTenantUserDisplayEmail(profile, authData.user?.email ?? null),
       fullName: profile.full_name,
       cpf: profile.cpf,
       phone: profile.phone,
@@ -821,7 +832,7 @@ export class TenantUsersRepository {
         data_purged_at: null,
         cpf: normalizedCpf,
         phone: normalizedPhone,
-        personal_email: normalizedEmail
+        personal_email: null
       },
       { onConflict: "tenant_id,user_id" }
     );
@@ -958,7 +969,7 @@ export class TenantUsersRepository {
     return {
       exists: existsForEmployeePrereg,
       userId: outUserId,
-      email: profile?.personal_email ?? authUser?.email ?? normalizedEmailHint,
+      email: authUser?.email?.trim().toLowerCase() ?? profile?.personal_email ?? normalizedEmailHint,
       fullName:
         profile?.full_name ??
         candidateProfile?.full_name ??

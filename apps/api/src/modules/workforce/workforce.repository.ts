@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { updateAuthUserAccountEmail } from "../../lib/auth-email.js";
 import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js";
 
 import type {
@@ -1949,7 +1950,7 @@ export class WorkforceRepository {
     const authUser = authRes.data.user;
     const authMetadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
     const normalizedAuthEmail = authUser?.email?.trim().toLowerCase() ?? null;
-    const personalEmail = profile?.personal_email ?? candidateProfile?.email ?? normalizedAuthEmail;
+    const personalEmail = normalizedAuthEmail ?? profile?.personal_email ?? candidateProfile?.email ?? null;
 
     const candidate = await this.getTenantCandidateSource({
       tenantId: input.tenantId,
@@ -2078,6 +2079,7 @@ export class WorkforceRepository {
     userId: string;
     fullName?: string | null;
     personalEmail?: string | null;
+    accountEmail?: string | null;
     cpf?: string | null;
     phone?: string | null;
     department?: string | null;
@@ -2087,13 +2089,22 @@ export class WorkforceRepository {
     baseSalary?: number | null;
     employeeTags?: string[];
   }): Promise<EmployeeProfile> {
-    const normalizedEmail = input.personalEmail?.trim().toLowerCase() || null;
     const normalizedCpf = input.cpf?.replace(/\D/g, "") || null;
     const normalizedPhone = input.phone?.replace(/\D/g, "") || null;
     const companyId =
       input.companyId ??
       (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
       (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
+
+    let accountEmail: string | null = null;
+    if (input.accountEmail != null && input.accountEmail.trim() !== "") {
+      const updated = await updateAuthUserAccountEmail(this.db, input.userId, input.accountEmail);
+      accountEmail = updated.email;
+    } else {
+      const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(input.userId);
+      if (authErr) throw authErr;
+      accountEmail = authData.user?.email?.trim().toLowerCase() ?? null;
+    }
 
     const { data, error } = await this.db
       .from("tenant_user_profiles")
@@ -2103,7 +2114,7 @@ export class WorkforceRepository {
           company_id: companyId,
           user_id: input.userId,
           full_name: input.fullName ?? null,
-          personal_email: normalizedEmail,
+          personal_email: null,
           cpf: normalizedCpf,
           phone: normalizedPhone,
           department: input.department ?? null,
@@ -2126,12 +2137,15 @@ export class WorkforceRepository {
       tenantId: input.tenantId,
       userId: input.userId,
       fullName: profile.fullName,
-      personalEmail: profile.personalEmail,
+      personalEmail: accountEmail,
       cpf: profile.cpf,
       phone: profile.phone
     });
 
-    return this.enrichEmployeeProfileWithAuthEmail(profile);
+    return this.enrichEmployeeProfileWithAuthEmail({
+      ...profile,
+      personalEmail: accountEmail ?? profile.personalEmail
+    });
   }
 
   async updateEmployeeProfileImage(input: {

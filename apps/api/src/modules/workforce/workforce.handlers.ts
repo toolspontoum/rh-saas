@@ -324,6 +324,7 @@ const upsertEmployeeProfileSchema = z.object({
   targetUserId: z.string().uuid().optional(),
   fullName: z.string().max(160).nullable().optional(),
   personalEmail: z.string().email().max(255).nullable().optional(),
+  accountEmail: z.string().email().max(255).optional(),
   cpf: z.string().max(20).nullable().optional(),
   phone: z.string().max(30).nullable().optional(),
   department: z.string().max(120).nullable().optional(),

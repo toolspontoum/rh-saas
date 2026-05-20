@@ -813,7 +813,7 @@ export class WorkforceService {
       status: "pending_ack",
       note: input.note ?? null,
       employeeFullName: profile?.fullName ?? null,
-      employeeEmail: profile?.personalEmail ?? profile?.authEmail ?? null,
+      employeeEmail: profile?.authEmail ?? profile?.personalEmail ?? null,
       employeeCpf: profile?.cpf ?? null,
       employeePhone: profile?.phone ?? null,
       department: profile?.department ?? null,
@@ -1556,7 +1556,7 @@ export class WorkforceService {
       userId: input.targetUserId,
       userName: profile?.fullName ?? null,
       userCpf: profile?.cpf ?? null,
-      userEmail: profile?.personalEmail ?? profile?.authEmail ?? null,
+      userEmail: profile?.authEmail ?? profile?.personalEmail ?? null,
       department: profile?.department ?? null,
       positionTitle: profile?.positionTitle ?? null,
       contractType: profile?.contractType ?? null,
@@ -2043,6 +2043,7 @@ export class WorkforceService {
     targetUserId?: string;
     fullName?: string | null;
     personalEmail?: string | null;
+    accountEmail?: string;
     cpf?: string | null;
     phone?: string | null;
     department?: string | null;
@@ -2070,6 +2071,7 @@ export class WorkforceService {
       userId: targetUserId,
       fullName: input.fullName ?? null,
       personalEmail: input.personalEmail ?? null,
+      accountEmail: input.accountEmail,
       cpf: input.cpf ?? null,
       phone: input.phone ?? null,
       department: input.department ?? null,
