@@ -318,6 +318,9 @@ export default function CollaboratorDetailsPage() {
   }, [tenantId, userId]);
 
   function validateProfile(): string | null {
+    const email = profile.accountEmail.trim().toLowerCase();
+    if (!email) return "Informe o e-mail da conta (login).";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "E-mail da conta inválido.";
     if (profile.cpf.trim()) {
       if (onlyDigits(profile.cpf).length !== 11) return "CPF deve conter 11 dígitos.";
       if (!isValidCpf(profile.cpf)) return "CPF inválido.";
@@ -343,6 +346,7 @@ export default function CollaboratorDetailsPage() {
         body: JSON.stringify({
           targetUserId: userId,
           fullName: profile.fullName || null,
+          accountEmail: profile.accountEmail.trim().toLowerCase(),
           cpf: onlyDigits(profile.cpf) || null,
           phone: onlyDigits(profile.phone) || null,
           department: profile.department || null,
@@ -771,7 +775,12 @@ export default function CollaboratorDetailsPage() {
               </label>
               <label>
                 E-mail da conta (login)
-                <input type="email" value={profile.accountEmail} readOnly disabled className="readonly-field" />
+                <input
+                  type="email"
+                  value={profile.accountEmail}
+                  disabled={!isEditing}
+                  onChange={(e) => setProfile((c) => ({ ...c, accountEmail: e.target.value }))}
+                />
               </label>
             </div>
 

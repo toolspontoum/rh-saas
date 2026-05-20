@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { updateAuthUserAccountEmail } from "../../lib/auth-email.js";
 import { fetchDefaultTenantCompanyId } from "../../lib/tenant-company-default.js";
 
 import type {
@@ -2078,6 +2079,7 @@ export class WorkforceRepository {
     userId: string;
     fullName?: string | null;
     personalEmail?: string | null;
+    accountEmail?: string | null;
     cpf?: string | null;
     phone?: string | null;
     department?: string | null;
@@ -2094,9 +2096,15 @@ export class WorkforceRepository {
       (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
       (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
 
-    const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(input.userId);
-    if (authErr) throw authErr;
-    const accountEmail = authData.user?.email?.trim().toLowerCase() ?? null;
+    let accountEmail: string | null = null;
+    if (input.accountEmail != null && input.accountEmail.trim() !== "") {
+      const updated = await updateAuthUserAccountEmail(this.db, input.userId, input.accountEmail);
+      accountEmail = updated.email;
+    } else {
+      const { data: authData, error: authErr } = await this.db.auth.admin.getUserById(input.userId);
+      if (authErr) throw authErr;
+      accountEmail = authData.user?.email?.trim().toLowerCase() ?? null;
+    }
 
     const { data, error } = await this.db
       .from("tenant_user_profiles")

@@ -2043,6 +2043,7 @@ export class WorkforceService {
     targetUserId?: string;
     fullName?: string | null;
     personalEmail?: string | null;
+    accountEmail?: string;
     cpf?: string | null;
     phone?: string | null;
     department?: string | null;
@@ -2070,6 +2071,7 @@ export class WorkforceService {
       userId: targetUserId,
       fullName: input.fullName ?? null,
       personalEmail: input.personalEmail ?? null,
+      accountEmail: input.accountEmail,
       cpf: input.cpf ?? null,
       phone: input.phone ?? null,
       department: input.department ?? null,
