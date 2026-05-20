@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../components/empty-state";
 import { apiFetch } from "../../../../lib/api";
 import { onlyDigits } from "../../../../lib/br-format";
+import { openBlankTabForAsyncUrl, openUrlInNewTab } from "../../../../lib/open-url";
 import { useSavedState } from "../../../../lib/saved-state";
 
 type Payslip = {
@@ -138,20 +139,28 @@ export default function PayslipsPage() {
     setError(null);
     setOkMsg(null);
     setViewingPayslipId(item.id);
+    const pendingTab = openBlankTabForAsyncUrl();
     try {
       const result = await apiFetch<OpenFileUrl>(`/v1/tenants/${tenantId}/payslips/${item.id}/open`);
-      const opened = window.open(result.signedUrl, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        setError("O navegador bloqueou a abertura do arquivo. Permita pop-ups para este site e tente novamente.");
-        return;
-      }
+      openUrlInNewTab(result.signedUrl, pendingTab);
 
       if (isEmployeeOnly && !item.acknowledgedAt) {
         await apiFetch(`/v1/tenants/${tenantId}/payslips/${item.id}/acknowledge`, { method: "POST" });
+        const acknowledgedAt = new Date().toISOString();
+        const markAcknowledged = (row: Payslip) =>
+          row.id === item.id ? { ...row, acknowledgedAt } : row;
+        setItems((rows) => rows.map(markAcknowledged));
+        setAllItems((rows) => rows.map(markAcknowledged));
         setOkMsg("Contracheque aberto. Ciência registrada.");
-        await loadData();
       }
     } catch (err) {
+      if (pendingTab && !pendingTab.closed) {
+        try {
+          pendingTab.close();
+        } catch {
+          /* ignore */
+        }
+      }
       setError((err as Error).message);
     } finally {
       setViewingPayslipId(null);
