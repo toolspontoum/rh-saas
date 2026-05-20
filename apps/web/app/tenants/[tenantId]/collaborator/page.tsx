@@ -8,7 +8,9 @@ import { Eye, Mail, Pencil, Trash2 } from "lucide-react";
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
 import { EmptyState } from "../../../../components/empty-state";
+import { SortableTh } from "../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../lib/api";
+import { useTableSort } from "../../../../lib/table-sort";
 
 type TenantUser = {
   userId: string;
@@ -38,6 +40,23 @@ const UNLINK_WARNING =
 
 const PURGE_ACCOUNT_WARNING =
   "Excluir a conta apaga e anonimiza os dados cadastrados deste colaborador neste projeto: perfil, documentos, registros de ponto e avisos vinculados. Esta ação não pode ser desfeita.";
+
+type CollaboratorSortColumn =
+  | "fullName"
+  | "email"
+  | "cpf"
+  | "phone"
+  | "department"
+  | "contract"
+  | "status"
+  | "lastAccess";
+
+function collaboratorStatusLabel(item: TenantUser): string {
+  if (item.dataPurgedAt) return "Excluído (anonimizado)";
+  if (item.status === "active") return "Ativo";
+  if (item.status === "inactive") return "Inativo";
+  return "Desligado";
+}
 
 export default function CollaboratorListPage() {
   const params = useParams<{ tenantId: string }>();
@@ -141,6 +160,25 @@ export default function CollaboratorListPage() {
       return true;
     });
   }, [items, profiles, statusFilter, contractFilter, departmentFilter, search]);
+
+  const sortGetters = useMemo(
+    () => ({
+      fullName: (item: TenantUser) => item.fullName,
+      email: (item: TenantUser) => item.email ?? accessMeta[item.userId]?.email,
+      cpf: (item: TenantUser) => item.cpf,
+      phone: (item: TenantUser) => item.phone,
+      department: (item: TenantUser) => profiles[item.userId]?.department,
+      contract: (item: TenantUser) => profiles[item.userId]?.contractType,
+      status: (item: TenantUser) => collaboratorStatusLabel(item),
+      lastAccess: (item: TenantUser) => {
+        const iso = accessMeta[item.userId]?.lastSignInAt ?? item.lastSignInAt;
+        return iso ? new Date(iso).getTime() : null;
+      }
+    }),
+    [accessMeta, profiles]
+  );
+
+  const { sort, toggleSort, sortedRows } = useTableSort(filtered, sortGetters, "fullName");
 
   function formatLastAccess(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -280,19 +318,19 @@ export default function CollaboratorListPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th>CPF</th>
-                <th>Telefone</th>
-                <th>Departamento</th>
-                <th>Contrato</th>
-                <th>Status</th>
-                <th>Último acesso</th>
+                <SortableTh label="Nome" column="fullName" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="E-mail" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Telefone" column="phone" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Departamento" column="department" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Contrato" column="contract" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Último acesso" column="lastAccess" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
+              {sortedRows.map((item) => {
                 const profile = profiles[item.userId];
                 const meta = accessMeta[item.userId];
                 return (

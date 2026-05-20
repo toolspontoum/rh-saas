@@ -6,7 +6,9 @@ import { useParams } from "next/navigation";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../../components/empty-state";
+import { SortableTh } from "../../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../../lib/api";
+import { useTableSort } from "../../../../../lib/table-sort";
 import { useSavedState } from "../../../../../lib/saved-state";
 
 type JobOption = {
@@ -31,6 +33,17 @@ type TenantApplication = {
 };
 
 type Paginated<T> = { items: T[] };
+
+type CandidateSortColumn = "name" | "email" | "job" | "status" | "date";
+
+function applicationStatusLabel(status: TenantApplication["status"]): string {
+  if (status === "submitted") return "Submetido";
+  if (status === "in_review") return "Em análise";
+  if (status === "approved") return "Aprovado";
+  if (status === "rejected") return "Rejeitado";
+  if (status === "withdrawn") return "Candidatura cancelada";
+  return "Arquivado";
+}
 
 export default function RecruitmentCandidatesPage() {
   const params = useParams<{ tenantId: string }>();
@@ -100,14 +113,18 @@ export default function RecruitmentCandidatesPage() {
     if (jobFilter !== "all") setJobFilter("all");
   }, [jobSearch, selectedJobByTitle, jobFilter, setJobFilter]);
 
-  function statusLabel(status: TenantApplication["status"]) {
-    if (status === "submitted") return "Submetido";
-    if (status === "in_review") return "Em análise";
-    if (status === "approved") return "Aprovado";
-    if (status === "rejected") return "Rejeitado";
-    if (status === "withdrawn") return "Candidatura cancelada";
-    return "Arquivado";
-  }
+  const sortGetters = useMemo(
+    () => ({
+      name: (application: TenantApplication) => application.candidate.fullName,
+      email: (application: TenantApplication) => application.candidate.email,
+      job: (application: TenantApplication) => application.job.title,
+      status: (application: TenantApplication) => applicationStatusLabel(application.status),
+      date: (application: TenantApplication) => new Date(application.createdAt).getTime()
+    }),
+    []
+  );
+
+  const { sort, toggleSort, sortedRows } = useTableSort(items, sortGetters, "name");
 
   return (
     <main className="container wide stack" style={{ margin: 0 }}>
@@ -187,14 +204,23 @@ export default function RecruitmentCandidatesPage() {
           <EmptyState title="Sem candidatos" description="Nenhum candidato encontrado com os filtros atuais." />
         ) : (
           <table className="table">
-            <thead><tr><th>Nome</th><th>Email</th><th>Vaga</th><th>Status</th><th>Data</th><th>Ações</th></tr></thead>
+            <thead>
+              <tr>
+                <SortableTh label="Nome" column="name" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Email" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Vaga" column="job" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Data" column="date" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <th>Ações</th>
+              </tr>
+            </thead>
             <tbody>
-              {items.map((application) => (
+              {sortedRows.map((application) => (
                 <tr key={application.id}>
                   <td>{application.candidate.fullName}</td>
                   <td>{application.candidate.email}</td>
                   <td>{application.job.title}</td>
-                  <td>{statusLabel(application.status)}</td>
+                  <td>{applicationStatusLabel(application.status)}</td>
                   <td>{new Date(application.createdAt).toLocaleDateString("pt-BR")}</td>
                   <td>
                     <div className="row">
