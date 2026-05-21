@@ -20,6 +20,7 @@ type TenantUser = {
   phone: string | null;
   status: "active" | "inactive" | "offboarded";
   roles: string[];
+  companyId?: string | null;
   lastSignInAt?: string | null;
   /** Quando preenchido, o perfil foi anonimizado (visível sobretudo a superadmin). */
   dataPurgedAt?: string | null;
@@ -30,6 +31,8 @@ type EmployeeProfile = {
   department: string | null;
   positionTitle: string | null;
 };
+
+type TenantCompany = { id: string; name: string };
 
 type Paginated<T> = { items: T[] };
 type BulkEmployeeProfiles = { items: Record<string, EmployeeProfile> };
@@ -46,6 +49,7 @@ type CollaboratorSortColumn =
   | "email"
   | "cpf"
   | "phone"
+  | "company"
   | "department"
   | "contract"
   | "status"
@@ -64,6 +68,7 @@ export default function CollaboratorListPage() {
 
   const [items, setItems] = useState<TenantUser[]>([]);
   const [profiles, setProfiles] = useState<Record<string, EmployeeProfile>>({});
+  const [companiesById, setCompaniesById] = useState<Record<string, string>>({});
   const [accessMeta, setAccessMeta] = useState<Record<string, { email: string | null; lastSignInAt: string | null }>>({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "offboarded">("all");
@@ -82,6 +87,20 @@ export default function CollaboratorListPage() {
   async function loadData() {
     setLoading(true);
     try {
+      // Carrega lista de empresas/projetos em paralelo (mapa id→nome para a coluna).
+      // O endpoint retorna array directo (não envelopado em { items }).
+      void apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`)
+        .then((rows) => {
+          const map: Record<string, string> = {};
+          for (const c of rows ?? []) {
+            if (c.id && c.name) map[c.id] = c.name;
+          }
+          setCompaniesById(map);
+        })
+        .catch(() => {
+          /* opcional: se falhar, coluna mostra "—" */
+        });
+
       // Carrega lista rapidamente (sem meta do Auth, que é cara).
       const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100&includeAuthMeta=false`);
       const allUsers = data.items ?? [];
@@ -167,6 +186,7 @@ export default function CollaboratorListPage() {
       email: (item: TenantUser) => item.email ?? accessMeta[item.userId]?.email,
       cpf: (item: TenantUser) => item.cpf,
       phone: (item: TenantUser) => item.phone,
+      company: (item: TenantUser) => (item.companyId ? companiesById[item.companyId] ?? null : null),
       department: (item: TenantUser) => profiles[item.userId]?.department,
       contract: (item: TenantUser) => profiles[item.userId]?.contractType,
       status: (item: TenantUser) => collaboratorStatusLabel(item),
@@ -175,10 +195,14 @@ export default function CollaboratorListPage() {
         return iso ? new Date(iso).getTime() : null;
       }
     }),
-    [accessMeta, profiles]
+    [accessMeta, profiles, companiesById]
   );
 
-  const { sort, toggleSort, sortedRows } = useTableSort(filtered, sortGetters, "fullName");
+  const { sort, toggleSort, sortedRows } = useTableSort<TenantUser, CollaboratorSortColumn>(
+    filtered,
+    sortGetters,
+    "fullName"
+  );
 
   function formatLastAccess(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -322,6 +346,7 @@ export default function CollaboratorListPage() {
                 <SortableTh label="E-mail da conta" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Telefone" column="phone" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
+                <SortableTh label="Empresa / Projeto" column="company" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Departamento" column="department" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Contrato" column="contract" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
@@ -339,6 +364,17 @@ export default function CollaboratorListPage() {
                     <td>{item.email ?? meta?.email ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
                     <td>{item.phone ?? "-"}</td>
+                    <td>
+                      {item.companyId ? (
+                        companiesById[item.companyId] ?? (
+                          <span className="muted" title="Empresa/projeto vinculada não está acessível neste contexto.">
+                            Vínculo restrito
+                          </span>
+                        )
+                      ) : (
+                        <span className="muted">Sem vínculo</span>
+                      )}
+                    </td>
                     <td>{profile?.department ?? "-"}</td>
                     <td>{profile?.contractType ?? "-"}</td>
                     <td>

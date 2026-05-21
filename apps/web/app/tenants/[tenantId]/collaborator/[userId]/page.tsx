@@ -27,6 +27,22 @@ type TenantUser = {
   phone: string | null;
   status: "active" | "inactive" | "offboarded";
   roles: string[];
+  companyId?: string | null;
+};
+
+type TenantCompany = { id: string; name: string };
+
+type Context = { roles: string[] };
+
+type CompanyHistoryItem = {
+  id: string;
+  companyId: string;
+  companyName: string | null;
+  linkedAt: string;
+  unlinkedAt: string | null;
+  isActive: boolean;
+  linkReason?: string | null;
+  unlinkReason?: string | null;
 };
 
 type EmployeeProfile = {
@@ -220,6 +236,14 @@ export default function CollaboratorDetailsPage() {
 
   const [user, setUser] = useState<TenantUser | null>(null);
   const [profile, setProfile] = useState<ProfileForm>(emptyProfile);
+  const [actorRoles, setActorRoles] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<TenantCompany[]>([]);
+  const [companyHistory, setCompanyHistory] = useState<CompanyHistoryItem[]>([]);
+  const [linkSelectValue, setLinkSelectValue] = useState<string>("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [unlinkModalOpen, setUnlinkModalOpen] = useState(false);
+  const [unlinkReason, setUnlinkReason] = useState("");
+  const [unlinkBusy, setUnlinkBusy] = useState(false);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [documentRequests, setDocumentRequests] = useState<DocumentRequestRecord[]>([]);
   const [payslips, setPayslips] = useState<PayslipRecord[]>([]);
@@ -276,15 +300,27 @@ export default function CollaboratorDetailsPage() {
   }, [documentRequests]);
 
   async function loadData() {
-    const [usersData, profileData, docsData, requestData, paysData] = await Promise.all([
-      apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`),
-      apiFetch<EmployeeProfile | null>(`/v1/tenants/${tenantId}/employee-profile?targetUserId=${userId}`),
-      apiFetch<Paginated<DocumentRecord>>(`/v1/tenants/${tenantId}/documents?page=1&pageSize=100&employeeUserId=${userId}`),
-      apiFetch<Paginated<DocumentRequestRecord>>(
-        `/v1/tenants/${tenantId}/document-requests?page=1&pageSize=100&employeeUserId=${userId}`
-      ),
-      apiFetch<Paginated<PayslipRecord>>(`/v1/tenants/${tenantId}/payslips?page=1&pageSize=50&employeeUserId=${userId}`)
-    ]);
+    const [usersData, profileData, docsData, requestData, paysData, contextData, companiesData, historyData] =
+      await Promise.all([
+        apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`),
+        apiFetch<EmployeeProfile | null>(`/v1/tenants/${tenantId}/employee-profile?targetUserId=${userId}`),
+        apiFetch<Paginated<DocumentRecord>>(`/v1/tenants/${tenantId}/documents?page=1&pageSize=100&employeeUserId=${userId}`),
+        apiFetch<Paginated<DocumentRequestRecord>>(
+          `/v1/tenants/${tenantId}/document-requests?page=1&pageSize=100&employeeUserId=${userId}`
+        ),
+        apiFetch<Paginated<PayslipRecord>>(`/v1/tenants/${tenantId}/payslips?page=1&pageSize=50&employeeUserId=${userId}`),
+        apiFetch<Context>(`/v1/tenants/${tenantId}/context`).catch(() => ({ roles: [] as string[] })),
+        // O endpoint /companies retorna array directo (não envelopado em { items }).
+        apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`).catch(
+          () => [] as TenantCompany[]
+        ),
+        apiFetch<{ items: CompanyHistoryItem[] }>(
+          `/v1/tenants/${tenantId}/users/${userId}/company-history`
+        ).catch(() => ({ items: [] as CompanyHistoryItem[] }))
+      ]);
+    setActorRoles(contextData.roles ?? []);
+    setCompanies(Array.isArray(companiesData) ? companiesData : []);
+    setCompanyHistory(historyData.items ?? []);
 
     const found = usersData.items.find((item) => item.userId === userId) ?? null;
     setUser(found);
@@ -316,6 +352,87 @@ export default function CollaboratorDetailsPage() {
   useEffect(() => {
     loadData().catch((err: Error) => setError(err.message));
   }, [tenantId, userId]);
+
+  const isManager = useMemo(
+    () => actorRoles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r)),
+    [actorRoles]
+  );
+  const isPreposto = useMemo(() => actorRoles.includes("preposto"), [actorRoles]);
+  const canEditCompanyLink = isManager;
+  const canSeeCompanyBlock = isManager || isPreposto;
+  // Fonte da verdade do vínculo activo: tenant_user_profiles.company_id (vindo de TenantUser).
+  // O histórico é apenas auditoria; um trigger na BD garante sincronização entre ambos.
+  const currentCompanyId = user?.companyId ?? null;
+  const currentCompanyDisplayName = useMemo(() => {
+    if (!currentCompanyId) return "Sem vínculo activo";
+    const fromCompanies = companies.find((c) => c.id === currentCompanyId)?.name;
+    if (fromCompanies) return fromCompanies;
+    // Caso o utilizador autenticado não consiga listar essa empresa (preposto restrito),
+    // exibimos o nome arquivado no histórico para não mostrar "(empresa não encontrada)".
+    const fromHistory = companyHistory.find(
+      (h) => h.companyId === currentCompanyId && h.isActive
+    )?.companyName;
+    return fromHistory ?? "Vínculo restrito";
+  }, [currentCompanyId, companies, companyHistory]);
+  const availableLinkOptions = useMemo(
+    () => companies.filter((c) => c.id !== currentCompanyId),
+    [companies, currentCompanyId]
+  );
+  /** Apenas vínculos encerrados (passados) — usado para exibir card "Histórico de vínculos". */
+  const pastCompanyHistory = useMemo(
+    () => companyHistory.filter((h) => !h.isActive),
+    [companyHistory]
+  );
+
+  async function handleLinkCompany() {
+    if (!linkSelectValue) return;
+    setLinkBusy(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/link-company`, {
+        method: "POST",
+        body: JSON.stringify({ companyId: linkSelectValue })
+      });
+      setLinkSelectValue("");
+      await loadData();
+      setOkMsg("Colaborador vinculado à empresa/projeto.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  function openUnlinkModal() {
+    setUnlinkReason("");
+    setUnlinkModalOpen(true);
+  }
+
+  async function confirmUnlinkCompany() {
+    const reason = unlinkReason.trim();
+    if (reason.length < 5) {
+      setError("Informe um motivo com pelo menos 5 caracteres para desvincular.");
+      return;
+    }
+    setUnlinkBusy(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/unlink-company`, {
+        method: "POST",
+        body: JSON.stringify({ reason })
+      });
+      setUnlinkModalOpen(false);
+      setUnlinkReason("");
+      await loadData();
+      setOkMsg("Colaborador desvinculado da empresa/projeto. Histórico preservado.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUnlinkBusy(false);
+    }
+  }
 
   function validateProfile(): string | null {
     const email = profile.accountEmail.trim().toLowerCase();
@@ -764,7 +881,7 @@ export default function CollaboratorDetailsPage() {
               </label>
             </div>
 
-            <div className="onboarding-row-2-40-60">
+            <div className={canSeeCompanyBlock ? "onboarding-row-3-25-35-40" : "onboarding-row-2-40-60"}>
               <label>
                 Telefone
                 <input
@@ -782,6 +899,64 @@ export default function CollaboratorDetailsPage() {
                   onChange={(e) => setProfile((c) => ({ ...c, accountEmail: e.target.value }))}
                 />
               </label>
+              {canSeeCompanyBlock ? (
+                <label>
+                  Empresa / Projeto vinculado
+                  {currentCompanyId ? (
+                    <div className="row" style={{ gap: 8, alignItems: "stretch" }}>
+                      <input
+                        value={currentCompanyDisplayName}
+                        disabled
+                        readOnly
+                        style={{ flex: 1, background: "#f1f5f9", color: "#475569", cursor: "not-allowed" }}
+                      />
+                      {canEditCompanyLink ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={openUnlinkModal}
+                          disabled={linkBusy || unlinkBusy}
+                          title="Desvincular colaborador desta empresa/projeto"
+                          style={{ whiteSpace: "nowrap" }}
+                        >
+                          Desvincular
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : canEditCompanyLink ? (
+                    <div className="row" style={{ gap: 8, alignItems: "stretch" }}>
+                      <select
+                        value={linkSelectValue}
+                        onChange={(e) => setLinkSelectValue(e.target.value)}
+                        disabled={linkBusy || availableLinkOptions.length === 0}
+                        style={{ flex: 1 }}
+                      >
+                        <option value="">Selecione uma empresa/projeto…</option>
+                        {availableLinkOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleLinkCompany}
+                        disabled={!linkSelectValue || linkBusy}
+                        style={{ whiteSpace: "nowrap" }}
+                      >
+                        {linkBusy ? "Vinculando…" : "Vincular"}
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      value="Sem vínculo activo"
+                      disabled
+                      readOnly
+                      style={{ background: "#f1f5f9", color: "#94a3b8", cursor: "not-allowed" }}
+                    />
+                  )}
+                </label>
+              ) : null}
             </div>
 
             <div className="onboarding-row-3-33-34-33">
@@ -1107,6 +1282,39 @@ export default function CollaboratorDetailsPage() {
         )}
       </div>
 
+      {canSeeCompanyBlock && pastCompanyHistory.length > 0 ? (
+        <div className="card table-wrap">
+          <div className="section-header">
+            <h3>Histórico de vínculos a empresas/projetos</h3>
+          </div>
+          <p className="muted" style={{ marginTop: 0, fontSize: "0.9rem" }}>
+            Empresas/projetos a que este colaborador esteve vinculado anteriormente. Os
+            dados históricos (documentos, batidas, holerites) permanecem associados ao
+            usuário e podem ser consultados.
+          </p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Empresa / Projeto</th>
+                <th>Vinculado em</th>
+                <th>Desvinculado em</th>
+                <th>Motivo do desvínculo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pastCompanyHistory.map((h) => (
+                <tr key={h.id}>
+                  <td>{h.companyName ?? "(empresa removida)"}</td>
+                  <td>{new Date(h.linkedAt).toLocaleDateString("pt-BR")}</td>
+                  <td>{h.unlinkedAt ? new Date(h.unlinkedAt).toLocaleDateString("pt-BR") : "—"}</td>
+                  <td className="muted">{h.unlinkReason ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       {isDocModalOpen ? (
         <div className="modal-backdrop" onClick={() => setIsDocModalOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -1278,6 +1486,51 @@ export default function CollaboratorDetailsPage() {
         onCancel={() => setAvatarSource(null)}
         onConfirm={onConfirmAvatarCrop}
       />
+
+      {unlinkModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Desvincular colaborador">
+            <h3>Desvincular da empresa/projeto</h3>
+            <p className="muted">
+              O colaborador deixará de constar nesta empresa/projeto. O histórico
+              (documentos, batidas, holerites) é preservado e poderá ser consultado.
+              A conta volta a ter perfil de candidato até nova vinculação.
+            </p>
+            <label>
+              Motivo do desvínculo (mínimo 5 caracteres)
+              <textarea
+                value={unlinkReason}
+                onChange={(e) => setUnlinkReason(e.target.value)}
+                rows={3}
+                disabled={unlinkBusy}
+                placeholder="Ex.: Transferência para outro contrato, encerramento da operação…"
+              />
+            </label>
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  if (unlinkBusy) return;
+                  setUnlinkModalOpen(false);
+                  setUnlinkReason("");
+                }}
+                disabled={unlinkBusy}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={confirmUnlinkCompany}
+                disabled={unlinkBusy || unlinkReason.trim().length < 5}
+              >
+                {unlinkBusy ? "Desvinculando…" : "Confirmar desvínculo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

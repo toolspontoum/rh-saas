@@ -22,6 +22,17 @@ type TenantContext = {
   aiEffectiveProvider: "openai" | "gemini" | null;
   /** Superadmin da plataforma (diagnóstico técnico, etc.). */
   isPlatformSuperadmin?: boolean;
+  /** Id do utilizador autenticado (para `me`-style queries no client). */
+  userId?: string | null;
+};
+
+type CompanyHistoryItem = {
+  id: string;
+  companyId: string;
+  companyName: string | null;
+  linkedAt: string;
+  unlinkedAt: string | null;
+  isActive: boolean;
 };
 
 type TenantCompany = {
@@ -108,29 +119,92 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     const r = context.roles;
     const isSupervisor = r.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
     const isPreposto = r.includes("preposto");
-    if (!isSupervisor && !isPreposto) {
+    const isCollaboratorOnly =
+      !isSupervisor &&
+      !isPreposto &&
+      r.length > 0 &&
+      r.every((role) => ["employee", "viewer"].includes(role));
+
+    if (!isSupervisor && !isPreposto && !isCollaboratorOnly) {
       setCompanies([]);
       return;
     }
+
     let cancelled = false;
-    apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`)
-      .then((rows) => {
+
+    if (isSupervisor || isPreposto) {
+      apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`)
+        .then((rows) => {
+          if (cancelled) return;
+          setCompanies(rows);
+          const stored = getStoredTenantCompanyId(tenantId);
+          const storedOk = Boolean(stored && rows.some((item) => item.id === stored));
+          if (storedOk && stored) {
+            setSelectedCompanyId(stored);
+            return;
+          }
+          if (rows.length === 1) {
+            const only = rows[0]!;
+            setSelectedCompanyId(only.id);
+            setStoredTenantCompanyId(tenantId, only.id);
+            return;
+          }
+          setSelectedCompanyId("");
+          setStoredTenantCompanyId(tenantId, null);
+        })
+        .catch(() => {
+          if (!cancelled) setCompanies([]);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Caso colaborador/candidato: só exibe selector se tiver vínculo ACTIVO + histórico.
+    const meUserId = context.userId;
+    if (!meUserId) {
+      setCompanies([]);
+      return;
+    }
+    apiFetch<{ items: CompanyHistoryItem[] }>(
+      `/v1/tenants/${tenantId}/users/${meUserId}/company-history`
+    )
+      .then((res) => {
         if (cancelled) return;
+        const items = res.items ?? [];
+        const hasActive = items.some((it) => it.isActive);
+        const hasHistorical = items.some((it) => !it.isActive);
+        // Só mostra o selector quando o usuário está vinculado a um novo projeto
+        // E tem ao menos um vínculo histórico (caso contrário não há o que alternar).
+        if (!hasActive || !hasHistorical) {
+          setCompanies([]);
+          return;
+        }
+        // Deduplica por companyId (vínculos múltiplos ao mesmo projeto contam uma vez).
+        const seen = new Set<string>();
+        const rows: TenantCompany[] = [];
+        for (const item of items) {
+          if (!item.companyId || seen.has(item.companyId)) continue;
+          seen.add(item.companyId);
+          rows.push({
+            id: item.companyId,
+            name: item.companyName ?? "Empresa",
+            taxId: null
+          });
+        }
         setCompanies(rows);
         const stored = getStoredTenantCompanyId(tenantId);
-        const storedOk = Boolean(stored && rows.some((item) => item.id === stored));
+        const storedOk = Boolean(stored && rows.some((it) => it.id === stored));
         if (storedOk && stored) {
           setSelectedCompanyId(stored);
           return;
         }
-        if (rows.length === 1) {
-          const only = rows[0]!;
-          setSelectedCompanyId(only.id);
-          setStoredTenantCompanyId(tenantId, only.id);
-          return;
+        // Default: empresa do vínculo ACTIVO actual.
+        const active = items.find((it) => it.isActive);
+        if (active) {
+          setSelectedCompanyId(active.companyId);
+          setStoredTenantCompanyId(tenantId, active.companyId);
         }
-        setSelectedCompanyId("");
-        setStoredTenantCompanyId(tenantId, null);
       })
       .catch(() => {
         if (!cancelled) setCompanies([]);
@@ -264,12 +338,18 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
                 window.location.reload();
               }}
             >
-              {roles.includes("preposto") &&
-              !roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role)) ? null : (
-                <option value="" style={{ color: "#000" }}>
-                  Todas
-                </option>
-              )}
+              {(() => {
+                const isSupervisor = roles.some((role) =>
+                  ["owner", "admin", "manager", "analyst"].includes(role)
+                );
+                // "Todas" só faz sentido para supervisores. Preposto e
+                // colaborador/candidato devem ver/escolher empresas específicas.
+                return isSupervisor ? (
+                  <option value="" style={{ color: "#000" }}>
+                    Todas
+                  </option>
+                ) : null;
+              })()}
               {companies.map((company) => (
                 <option key={company.id} value={company.id} style={{ color: "#000" }}>
                   {company.name}

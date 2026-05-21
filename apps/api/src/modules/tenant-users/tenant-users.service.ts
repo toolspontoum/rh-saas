@@ -7,6 +7,7 @@ import type {
   EmployeeLookupResult,
   PaginatedResult,
   TenantUser,
+  TenantUserCompanyHistoryItem,
   TenantUserStatus
 } from "./tenant-users.types.js";
 import type { AppRole } from "../core-auth-tenant/core-auth-tenant.types.js";
@@ -423,6 +424,173 @@ export class TenantUsersService {
     const linked = await this.repository.getUserInTenant(input.tenantId, targetUserId, companyId);
     if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
     return linked;
+  }
+
+  /**
+   * Vincula um colaborador existente a uma empresa/projeto (`companyId`).
+   * Se ele já estava vinculado a outra empresa, fecha o vínculo anterior no
+   * histórico, repõe role `employee` + status `active` e abre novo vínculo.
+   * Mantém todos os dados pessoais e históricos (documentos, batidas etc.).
+   */
+  async linkCollaboratorToCompany(input: {
+    tenantId: string;
+    actorUserId: string;
+    targetUserId: string;
+    companyId: string;
+    reason?: string | null;
+  }): Promise<TenantUser> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst"
+    ]);
+
+    if (!input.companyId?.trim()) throw new Error("COMPANY_SCOPE_REQUIRED");
+
+    // Garante que a empresa/projeto pertence ao tenant.
+    await this.tenantCompaniesService.assertCompanyBelongsToTenant(
+      input.tenantId,
+      input.companyId
+    );
+
+    // Encontra o perfil actual em qualquer empresa do tenant.
+    const current = await this.repository.getUserInTenant(input.tenantId, input.targetUserId);
+    if (!current) throw new Error("TARGET_USER_NOT_IN_TENANT");
+
+    // Realocação: actualiza company_id no perfil e reabre status active.
+    await this.repository.updateProfileCompany({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId: input.companyId
+    });
+
+    // Reatribui role employee (idempotente).
+    await this.repository.upsertEmployeeInTenant({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      userId: input.targetUserId,
+      fullName: current.fullName ?? "Colaborador",
+      email: current.email,
+      cpf: current.cpf,
+      phone: current.phone
+    });
+
+    // Garante vínculo aberto correcto no histórico (fecha anterior se outra empresa).
+    await this.repository.ensureOpenCompanyLink({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId: input.companyId,
+      reason: input.reason ?? null,
+      actorUserId: input.actorUserId
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.user.collaborator_linked_to_company",
+      resourceType: "tenant_user",
+      resourceId: input.targetUserId,
+      result: "success",
+      metadata: {
+        previousCompanyId: current.companyId,
+        newCompanyId: input.companyId,
+        reason: input.reason ?? null
+      }
+    });
+
+    const updated = await this.repository.getUserInTenant(
+      input.tenantId,
+      input.targetUserId,
+      input.companyId
+    );
+    if (!updated) throw new Error("TARGET_USER_NOT_IN_TENANT");
+    return updated;
+  }
+
+  /**
+   * Desvincula o colaborador da empresa/projeto actual sem apagar dados.
+   * Encerra o vínculo aberto no histórico e troca role `employee` por `viewer`.
+   */
+  async unlinkCollaboratorFromCompany(input: {
+    tenantId: string;
+    actorUserId: string;
+    targetUserId: string;
+    reason: string;
+  }): Promise<{ ok: true }> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst"
+    ]);
+
+    if (input.targetUserId === input.actorUserId) {
+      throw new Error("SELF_DELETE_NOT_ALLOWED");
+    }
+    if (!input.reason?.trim() || input.reason.trim().length < 5) {
+      throw new Error("UNLINK_REASON_REQUIRED");
+    }
+
+    const target = await this.repository.getUserInTenant(input.tenantId, input.targetUserId);
+    if (!target) throw new Error("TARGET_USER_NOT_IN_TENANT");
+    if (!target.companyId) throw new Error("USER_NOT_LINKED_TO_COMPANY");
+
+    await this.repository.unlinkEmployeeFromTenant({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId: target.companyId,
+      reason: input.reason.trim(),
+      actorUserId: input.actorUserId
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: target.companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.user.collaborator_unlinked_from_company",
+      resourceType: "tenant_user",
+      resourceId: input.targetUserId,
+      result: "success",
+      metadata: {
+        previousCompanyId: target.companyId,
+        reason: input.reason.trim()
+      }
+    });
+
+    return { ok: true };
+  }
+
+  /**
+   * Lista histórico de vínculos do colaborador. Apenas gestores/preposto e o
+   * próprio utilizador podem ler.
+   */
+  async listCollaboratorCompanyHistory(input: {
+    tenantId: string;
+    actorUserId: string;
+    targetUserId: string;
+  }): Promise<TenantUserCompanyHistoryItem[]> {
+    const isSelf = input.targetUserId === input.actorUserId;
+    if (!isSelf) {
+      await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+        "owner",
+        "admin",
+        "manager",
+        "analyst",
+        "preposto"
+      ]);
+    }
+
+    const items = await this.repository.listCompanyHistory({
+      tenantId: input.tenantId,
+      userId: input.targetUserId
+    });
+
+    return items.map((row) => ({
+      ...row,
+      isActive: row.unlinkedAt === null
+    }));
   }
 
   async resendEmployeeInvite(input: {

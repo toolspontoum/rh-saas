@@ -442,6 +442,7 @@ export class TenantUsersRepository {
     userId: string;
     companyId: string | null;
     reason: string;
+    actorUserId?: string | null;
   }): Promise<void> {
     const companyId =
       input.companyId ?? (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
@@ -482,6 +483,162 @@ export class TenantUsersRepository {
       { onConflict: "tenant_id,user_id,role" }
     );
     if (viewerRoleErr) throw viewerRoleErr;
+
+    // Fecha vínculo aberto no histórico (se houver).
+    await this.closeOpenCompanyLink({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId,
+      reason: input.reason,
+      actorUserId: input.actorUserId ?? null
+    });
+  }
+
+  /**
+   * Fecha (preenche unlinked_at) o vínculo aberto do colaborador para a empresa indicada.
+   * Idempotente: se não houver vínculo aberto, não falha.
+   */
+  async closeOpenCompanyLink(input: {
+    tenantId: string;
+    userId: string;
+    companyId: string;
+    reason?: string | null;
+    actorUserId?: string | null;
+  }): Promise<void> {
+    const { error } = await this.db
+      .from("tenant_user_company_history")
+      .update({
+        unlinked_at: new Date().toISOString(),
+        unlink_reason: input.reason ?? null,
+        unlinked_by_user_id: input.actorUserId ?? null
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .eq("company_id", input.companyId)
+      .is("unlinked_at", null);
+    if (error) throw error;
+  }
+
+  /**
+   * Garante um vínculo aberto para (tenant, user, company). Se já existir aberto
+   * para a mesma empresa, mantém. Se existir aberto para outra empresa, fecha
+   * primeiro. Idempotente.
+   */
+  async ensureOpenCompanyLink(input: {
+    tenantId: string;
+    userId: string;
+    companyId: string;
+    reason?: string | null;
+    actorUserId?: string | null;
+  }): Promise<void> {
+    const { data: existing, error: selErr } = await this.db
+      .from("tenant_user_company_history")
+      .select("id,company_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .is("unlinked_at", null)
+      .maybeSingle();
+    if (selErr) throw selErr;
+
+    if (existing) {
+      if ((existing as { company_id: string }).company_id === input.companyId) return;
+      const { error: closeErr } = await this.db
+        .from("tenant_user_company_history")
+        .update({
+          unlinked_at: new Date().toISOString(),
+          unlink_reason: input.reason ?? "Realocação para outro projeto",
+          unlinked_by_user_id: input.actorUserId ?? null
+        })
+        .eq("id", (existing as { id: string }).id);
+      if (closeErr) throw closeErr;
+    }
+
+    const { error: insErr } = await this.db.from("tenant_user_company_history").insert({
+      tenant_id: input.tenantId,
+      user_id: input.userId,
+      company_id: input.companyId,
+      link_reason: input.reason ?? null,
+      linked_by_user_id: input.actorUserId ?? null
+    });
+    if (insErr) throw insErr;
+  }
+
+  /**
+   * Lista o histórico de empresas/projetos do colaborador no tenant, com nome da empresa.
+   */
+  async listCompanyHistory(input: { tenantId: string; userId: string }): Promise<
+    Array<{
+      id: string;
+      tenantId: string;
+      userId: string;
+      companyId: string;
+      companyName: string | null;
+      linkedAt: string;
+      unlinkedAt: string | null;
+      linkedByUserId: string | null;
+      unlinkedByUserId: string | null;
+      linkReason: string | null;
+      unlinkReason: string | null;
+    }>
+  > {
+    const { data, error } = await this.db
+      .from("tenant_user_company_history")
+      .select(
+        "id,tenant_id,user_id,company_id,linked_at,unlinked_at,linked_by_user_id,unlinked_by_user_id,link_reason,unlink_reason,tenant_companies(name)"
+      )
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .order("linked_at", { ascending: false });
+    if (error) throw error;
+    type Row = {
+      id: string;
+      tenant_id: string;
+      user_id: string;
+      company_id: string;
+      linked_at: string;
+      unlinked_at: string | null;
+      linked_by_user_id: string | null;
+      unlinked_by_user_id: string | null;
+      link_reason: string | null;
+      unlink_reason: string | null;
+      tenant_companies: { name: string | null } | null;
+    };
+    const rows = (data ?? []) as unknown as Row[];
+    return rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      userId: row.user_id,
+      companyId: row.company_id,
+      companyName: row.tenant_companies?.name ?? null,
+      linkedAt: row.linked_at,
+      unlinkedAt: row.unlinked_at,
+      linkedByUserId: row.linked_by_user_id,
+      unlinkedByUserId: row.unlinked_by_user_id,
+      linkReason: row.link_reason,
+      unlinkReason: row.unlink_reason
+    }));
+  }
+
+  /**
+   * Realoca perfil de colaborador para outra empresa (`company_id`) sem perder
+   * histórico. NÃO cria/remove roles: usa `upsertEmployeeInTenant` para isso.
+   */
+  async updateProfileCompany(input: {
+    tenantId: string;
+    userId: string;
+    companyId: string;
+  }): Promise<void> {
+    const { error } = await this.db
+      .from("tenant_user_profiles")
+      .update({
+        company_id: input.companyId,
+        status: "active",
+        offboard_reason: null,
+        offboarded_at: null
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId);
+    if (error) throw error;
   }
 
   async purgeCollaboratorData(input: {
@@ -837,6 +994,15 @@ export class TenantUsersRepository {
       { onConflict: "tenant_id,user_id" }
     );
     if (profileError) throw profileError;
+
+    // Garante vínculo aberto no histórico para a empresa actual.
+    await this.ensureOpenCompanyLink({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId,
+      reason: null,
+      actorUserId: null
+    });
   }
 
   async upsertBackofficeInTenant(input: {

@@ -2,7 +2,7 @@
 
 import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Camera, CheckCircle2, Clock3, Info, Pencil, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
@@ -151,6 +151,54 @@ function formatBalance(minutes: number): string {
   return `${sign}${h}:${m}`;
 }
 
+/**
+ * Calcula quais batidas podem ser registradas a seguir, considerando o
+ * ciclo de trabalho aberto (jornada nocturna pode atravessar dias).
+ * Regra: clock_in → (lunch_out | clock_out); lunch_out → lunch_in;
+ *        lunch_in → clock_out; clock_out → clock_in.
+ */
+function nextAllowedActions(lastType: PunchAction | null | undefined): PunchAction[] {
+  switch (lastType ?? null) {
+    case null:
+    case "clock_out":
+      return ["clock_in"];
+    case "clock_in":
+      return ["lunch_out", "clock_out"];
+    case "lunch_out":
+      return ["lunch_in"];
+    case "lunch_in":
+      return ["clock_out"];
+    default:
+      return [];
+  }
+}
+
+function nextActionHint(lastType: PunchAction | null | undefined): string {
+  switch (lastType ?? null) {
+    case null:
+      return "Registre a entrada para iniciar o ciclo de trabalho.";
+    case "clock_in":
+      return "Em jornada de trabalho. Registre saída para o almoço ou saída final.";
+    case "lunch_out":
+      return "Em horário de almoço. Registre o retorno do almoço quando voltar.";
+    case "lunch_in":
+      return "Após o almoço. Registre a saída final para encerrar a jornada.";
+    case "clock_out":
+      return "Jornada encerrada. Você pode registrar uma nova entrada quando voltar ao trabalho.";
+    default:
+      return "";
+  }
+}
+
+function lastEntryOf(entries: TimeEntry[]): TimeEntry | null {
+  if (!entries.length) return null;
+  let last = entries[0];
+  for (const e of entries) {
+    if (new Date(e.recordedAt).getTime() > new Date(last.recordedAt).getTime()) last = e;
+  }
+  return last;
+}
+
 function groupRows(entries: TimeEntry[]): WorkRow[] {
   const sorted = [...entries].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
   const rows: WorkRow[] = [];
@@ -258,6 +306,13 @@ export default function TimeRegisterPage() {
   );
 
   const rows = useMemo(() => groupRows(entries), [entries]);
+
+  // Estado do ciclo de trabalho aberto: usamos a última batida real (independente do dia
+  // civil) para tolerar jornada nocturna e turnos que cruzam a meia-noite.
+  const lastEntry = useMemo(() => lastEntryOf(entries), [entries]);
+  const lastEntryType = lastEntry?.entryType ?? null;
+  const allowedActions = useMemo(() => new Set(nextAllowedActions(lastEntryType)), [lastEntryType]);
+  const cycleHint = useMemo(() => nextActionHint(lastEntryType), [lastEntryType]);
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       const profile = employeeProfiles[u.userId];
@@ -676,6 +731,13 @@ export default function TimeRegisterPage() {
       await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
     } catch (err) {
       setError((err as Error).message);
+      // Recarrega o histórico para reflectir o estado real e desabilitar o
+      // botão correto caso o backend tenha rejeitado por sequência inválida.
+      try {
+        await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
+      } catch {
+        /* ignora falha de refresh */
+      }
     }
   }
 
@@ -1297,20 +1359,49 @@ export default function TimeRegisterPage() {
       </div>
       ) : null}
       {canRegister ? (
-        <div className="card row">
-          {(Object.keys(actionLabel) as PunchAction[]).map((action) => (
-            <button
-              key={action}
-              className={action === "lunch_out" || action === "lunch_in" ? "secondary" : ""}
-              onClick={() => {
-                setActivePunch(action);
-                setPunchAt(new Date().toISOString());
-                setSelfieData(null);
-              }}
-            >
-              {actionLabel[action]}
-            </button>
-          ))}
+        <div className="card stack">
+          {cycleHint ? (
+            <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>
+              {cycleHint}
+              {lastEntry ? (
+                <>
+                  {" "}Última batida:{" "}
+                  <strong>{entryLabel[lastEntry.entryType]}</strong>{" "}
+                  às {new Date(lastEntry.recordedAt).toLocaleString("pt-BR")}.
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          <div className="punch-actions" role="group" aria-label="Registrar batida de ponto">
+            {(Object.keys(actionLabel) as PunchAction[]).map((action) => {
+              const isAllowed = allowedActions.has(action);
+              const variantClass =
+                action === "lunch_out" || action === "lunch_in" ? "secondary" : "";
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  className={`punch-action-btn ${variantClass}`.trim()}
+                  disabled={!isAllowed}
+                  aria-disabled={!isAllowed}
+                  title={
+                    isAllowed
+                      ? actionLabel[action]
+                      : `${actionLabel[action]} — indisponível no momento (aguarde a etapa anterior).`
+                  }
+                  onClick={() => {
+                    if (!isAllowed) return;
+                    setActivePunch(action);
+                    setPunchAt(new Date().toISOString());
+                    setSelfieData(null);
+                  }}
+                >
+                  {!isAllowed ? <Lock size={14} strokeWidth={2.25} aria-hidden /> : null}
+                  {actionLabel[action]}
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 

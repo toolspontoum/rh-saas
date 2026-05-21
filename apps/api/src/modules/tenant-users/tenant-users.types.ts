@@ -42,3 +42,19 @@ export type EmployeeLookupResult = {
   baseSalary: number | null;
   employeeTags: string[];
 };
+
+/** Item do histórico de vínculos do colaborador a empresas/projetos. */
+export type TenantUserCompanyHistoryItem = {
+  id: string;
+  tenantId: string;
+  userId: string;
+  companyId: string;
+  companyName: string | null;
+  linkedAt: string;
+  unlinkedAt: string | null;
+  linkedByUserId: string | null;
+  unlinkedByUserId: string | null;
+  linkReason: string | null;
+  unlinkReason: string | null;
+  isActive: boolean;
+};

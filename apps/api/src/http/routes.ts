@@ -411,7 +411,9 @@ apiRouter.get("/v1/tenants/:tenantId/context", requireAuth, async (req, res) => 
       tenantId: req.params.tenantId,
       email: auth.email
     });
-    return res.status(200).json(result);
+    // Devolvemos também o userId autenticado para o cliente conseguir fazer
+    // consultas "me-style" (ex.: histórico de empresas) sem novo lookup.
+    return res.status(200).json({ ...result, userId: auth.userId });
   } catch (error) {
     const parsed = toHttpError(error);
     return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
@@ -1707,6 +1709,66 @@ apiRouter.delete("/v1/tenants/:tenantId/users/:targetUserId", requireAuth, async
     return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
   }
 });
+
+// Vincular colaborador a uma empresa/projeto (realocação ou reactivação).
+apiRouter.post(
+  "/v1/tenants/:tenantId/users/:targetUserId/link-company",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const result = await tenantUsersHandlers.linkCollaboratorToCompany({
+        tenantId: req.params.tenantId,
+        actorUserId: (req as AuthenticatedRequest).auth.userId,
+        targetUserId: req.params.targetUserId,
+        companyId: req.body?.companyId,
+        reason: req.body?.reason
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      const parsed = toHttpError(error);
+      return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+    }
+  }
+);
+
+// Desvincular colaborador da empresa/projeto actual (preserva histórico).
+apiRouter.post(
+  "/v1/tenants/:tenantId/users/:targetUserId/unlink-company",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const result = await tenantUsersHandlers.unlinkCollaboratorFromCompany({
+        tenantId: req.params.tenantId,
+        actorUserId: (req as AuthenticatedRequest).auth.userId,
+        targetUserId: req.params.targetUserId,
+        reason: req.body?.reason
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      const parsed = toHttpError(error);
+      return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+    }
+  }
+);
+
+// Histórico de vínculos de empresa/projeto do colaborador.
+apiRouter.get(
+  "/v1/tenants/:tenantId/users/:targetUserId/company-history",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const items = await tenantUsersHandlers.listCollaboratorCompanyHistory({
+        tenantId: req.params.tenantId,
+        actorUserId: (req as AuthenticatedRequest).auth.userId,
+        targetUserId: req.params.targetUserId
+      });
+      return res.status(200).json({ items });
+    } catch (error) {
+      const parsed = toHttpError(error);
+      return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+    }
+  }
+);
 
 apiRouter.get("/v1/tenants/:tenantId/notices", requireAuth, async (req, res) => {
   try {

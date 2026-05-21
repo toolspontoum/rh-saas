@@ -29,6 +29,12 @@ export class TenantCompaniesService {
     private readonly authTenantService: CoreAuthTenantService
   ) {}
 
+  /** Garante que a empresa/projeto pertence ao tenant. Lança erro caso contrário. */
+  async assertCompanyBelongsToTenant(tenantId: string, companyId: string): Promise<void> {
+    const row = await this.repository.findInTenant(tenantId, companyId);
+    if (!row) throw new Error("TENANT_COMPANY_NOT_FOUND");
+  }
+
   async list(input: { userId: string; tenantId: string }): Promise<TenantCompanyDto[]> {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
       "owner",
