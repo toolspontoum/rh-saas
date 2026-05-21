@@ -209,6 +209,35 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
+/* Botões de batida de ponto — estado bloqueado mais evidente */
+.punch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.punch-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.punch-action-btn:disabled {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border: 1px dashed #cbd5e1 !important;
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: grayscale(0.35);
+}
+
+.punch-action-btn:disabled:hover {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+}
+
 button.btn.secondary,
 a.btn.secondary {
   background: #eef3f9;
@@ -587,7 +616,8 @@ button.secondary svg {
 .onboarding-row-2-60-40,
 .onboarding-row-2-40-60,
 .onboarding-row-3-33-34-33,
-.onboarding-row-3-20-20-60 {
+.onboarding-row-3-20-20-60,
+.onboarding-row-3-25-35-40 {
   display: grid;
   gap: 8px;
 }
@@ -606,6 +636,10 @@ button.secondary svg {
 
 .onboarding-row-3-20-20-60 {
   grid-template-columns: minmax(0, 20fr) minmax(0, 20fr) minmax(0, 60fr);
+}
+
+.onboarding-row-3-25-35-40 {
+  grid-template-columns: minmax(0, 25fr) minmax(0, 35fr) minmax(0, 40fr);
 }
 
 .job-description {
@@ -1131,7 +1165,8 @@ input[type="file"] {
   .onboarding-row-2-60-40,
   .onboarding-row-2-40-60,
   .onboarding-row-3-33-34-33,
-  .onboarding-row-3-20-20-60 {
+  .onboarding-row-3-20-20-60,
+  .onboarding-row-3-25-35-40 {
     grid-template-columns: 1fr;
   }
 

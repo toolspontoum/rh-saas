@@ -83,6 +83,27 @@ const targetUserActionSchema = z.object({
   webBaseUrl: z.string().max(240).optional()
 });
 
+const linkCompanySchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+  companyId: z.string().uuid(),
+  reason: z.string().max(400).optional()
+});
+
+const unlinkCompanySchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+  reason: z.string().min(5).max(400)
+});
+
+const companyHistorySchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  targetUserId: z.string().uuid()
+});
+
 export class TenantUsersHandlers {
   constructor(private readonly service: TenantUsersService) {}
 
@@ -134,5 +155,20 @@ export class TenantUsersHandlers {
   async sendEmployeePasswordResetEmail(input: unknown) {
     const payload = targetUserActionSchema.parse(input);
     return this.service.sendEmployeePasswordResetEmail(payload);
+  }
+
+  async linkCollaboratorToCompany(input: unknown) {
+    const payload = linkCompanySchema.parse(input);
+    return this.service.linkCollaboratorToCompany(payload);
+  }
+
+  async unlinkCollaboratorFromCompany(input: unknown) {
+    const payload = unlinkCompanySchema.parse(input);
+    return this.service.unlinkCollaboratorFromCompany(payload);
+  }
+
+  async listCollaboratorCompanyHistory(input: unknown) {
+    const payload = companyHistorySchema.parse(input);
+    return this.service.listCollaboratorCompanyHistory(payload);
   }
 }

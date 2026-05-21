@@ -108,6 +108,18 @@ const knownErrors = new Map<string, ApiErrorShape>([
     "USER_HAS_LINKED_RECORDS",
     { status: 409, code: "USER_HAS_LINKED_RECORDS", message: "Usuario possui registros vinculados e nao pode ser removido do assinante." }
   ],
+  [
+    "USER_NOT_LINKED_TO_COMPANY",
+    { status: 400, code: "USER_NOT_LINKED_TO_COMPANY", message: "O colaborador nao esta vinculado a nenhuma empresa/projeto no momento." }
+  ],
+  [
+    "UNLINK_REASON_REQUIRED",
+    { status: 400, code: "UNLINK_REASON_REQUIRED", message: "Motivo do desvinculo obrigatorio com pelo menos 5 caracteres." }
+  ],
+  [
+    "TENANT_COMPANY_NOT_FOUND",
+    { status: 404, code: "TENANT_COMPANY_NOT_FOUND", message: "Empresa/projeto nao encontrado para o assinante selecionado." }
+  ],
   ["FILES_REQUIRED", { status: 400, code: "FILES_REQUIRED", message: "Envie ao menos um arquivo para esta operacao." }],
   ["CANDIDATE_NOT_FOUND", { status: 404, code: "CANDIDATE_NOT_FOUND", message: "Candidato nao encontrado para o assinante selecionado." }],
   ["CANDIDATE_MUST_BE_INACTIVE", { status: 400, code: "CANDIDATE_MUST_BE_INACTIVE", message: "Candidato deve estar inativo antes da exclusao." }],
@@ -545,6 +557,12 @@ export function toHttpError(error: unknown): ApiErrorShape {
   if (typeof error === "object" && error !== null && ("message" in error || "code" in error)) {
     const dbError = error as SupabaseLikeError;
     const message = dbError.message?.trim();
+
+    // Erros vindos de RAISE EXCEPTION em triggers do Postgres chegam como
+    // plain object (não Error instance). Reaproveita knownErrors pelo message.
+    if (message && knownErrors.has(message)) {
+      return knownErrors.get(message)!;
+    }
 
     if (dbError.code === "42703") {
       return {
