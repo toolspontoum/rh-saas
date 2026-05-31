@@ -47,6 +47,7 @@ export type NoticeDetails = Notice & {
 export type TimeEntry = {
   id: string;
   tenantId: string;
+  companyId: string | null;
   userId: string;
   userName?: string | null;
   userCpf?: string | null;

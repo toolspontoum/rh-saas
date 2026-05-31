@@ -77,6 +77,7 @@ type TenantUserProfileLiteRow = {
 type TimeEntryRow = {
   id: string;
   tenant_id: string;
+  company_id?: string | null;
   user_id: string;
   user_name?: string | null;
   user_cpf?: string | null;
@@ -332,6 +333,7 @@ const mapNoticeAttachment = (row: NoticeAttachmentRow): NoticeAttachment => ({
 const mapTimeEntry = (row: TimeEntryRow): TimeEntry => ({
   id: row.id,
   tenantId: row.tenant_id,
+  companyId: row.company_id ?? null,
   userId: row.user_id,
   userName: row.user_name ?? null,
   userCpf: row.user_cpf ?? null,
@@ -987,6 +989,7 @@ export class WorkforceRepository {
 
   async createTimeAdjustmentRequest(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     targetDate: string;
     requestedTime: string;
@@ -996,10 +999,18 @@ export class WorkforceRepository {
     requestedRecordedAt?: string | null;
     originalRecordedAt?: string | null;
   }): Promise<TimeAdjustmentRequest> {
+    // company_id é NOT NULL na tabela (migration tenant_companies_subscope).
+    // Cai para a empresa actual do perfil do colaborador e, por fim, para a
+    // empresa padrão do tenant — mesma estratégia já usada em audit_logs.
+    const companyId =
+      input.companyId ??
+      (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
+      (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
     const { data, error } = await this.db
       .from("time_adjustment_requests")
       .insert({
         tenant_id: input.tenantId,
+        company_id: companyId,
         user_id: input.userId,
         target_date: input.targetDate,
         requested_time: input.requestedTime,
@@ -1221,6 +1232,7 @@ export class WorkforceRepository {
 
   async createOncallEntry(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     contract?: string | null;
     oncallDate: string;
@@ -1229,10 +1241,15 @@ export class WorkforceRepository {
     oncallType: string;
     note?: string | null;
   }): Promise<OncallEntry> {
+    const companyId =
+      input.companyId ??
+      (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
+      (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
     const { data, error } = await this.db
       .from("oncall_entries")
       .insert({
         tenant_id: input.tenantId,
+        company_id: companyId,
         user_id: input.userId,
         contract: input.contract ?? null,
         oncall_date: input.oncallDate,
@@ -1504,10 +1521,22 @@ export class WorkforceRepository {
     payload?: Record<string, unknown>;
     createdAt?: string;
   }): Promise<OncallShiftEvent> {
+    // company_id é NOT NULL — deriva do oncall_shift relacionado.
+    const { data: shiftRow, error: shiftErr } = await this.db
+      .from("oncall_shifts")
+      .select("company_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.oncallShiftId)
+      .maybeSingle();
+    if (shiftErr) throw shiftErr;
+    const companyId = (shiftRow as { company_id: string } | null)?.company_id;
+    if (!companyId) throw new Error("ONCALL_SHIFT_NOT_FOUND");
+
     const { data, error } = await this.db
       .from("oncall_shift_events")
       .insert({
         tenant_id: input.tenantId,
+        company_id: companyId,
         oncall_shift_id: input.oncallShiftId,
         user_id: input.userId,
         actor_user_id: input.actorUserId ?? null,
@@ -2275,16 +2304,20 @@ export class WorkforceRepository {
 
   async createOnboardingRequirement(input: {
     tenantId: string;
+    companyId?: string | null;
     createdBy: string;
     title: string;
     category: string;
     isRequired: boolean;
     appliesToContract?: string | null;
   }): Promise<OnboardingRequirement> {
+    const companyId =
+      input.companyId ?? (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
     const { data, error } = await this.db
       .from("employee_onboarding_requirements")
       .insert({
         tenant_id: input.tenantId,
+        company_id: companyId,
         created_by: input.createdBy,
         title: input.title,
         category: input.category,
@@ -2314,15 +2347,21 @@ export class WorkforceRepository {
 
   async upsertOnboardingSubmission(input: {
     tenantId: string;
+    companyId?: string | null;
     requirementId: string;
     userId: string;
     documentId?: string | null;
   }): Promise<OnboardingSubmission> {
+    const companyId =
+      input.companyId ??
+      (await this.getTenantUserCompanyId(input.tenantId, input.userId)) ??
+      (await fetchDefaultTenantCompanyId(this.db, input.tenantId));
     const { data, error } = await this.db
       .from("employee_onboarding_submissions")
       .upsert(
         {
           tenant_id: input.tenantId,
+          company_id: companyId,
           requirement_id: input.requirementId,
           user_id: input.userId,
           document_id: input.documentId ?? null,
