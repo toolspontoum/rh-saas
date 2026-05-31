@@ -416,6 +416,7 @@ export class WorkforceService {
 
   async createTimeAdjustmentRequest(input: {
     tenantId: string;
+    companyId?: string | null;
     userId: string;
     targetDate: string;
     requestedTime: string;
@@ -428,6 +429,12 @@ export class WorkforceService {
     let originalRecordedAt: string | null = null;
     let targetEntryType = input.targetEntryType ?? null;
     let requestedRecordedAt = input.requestedRecordedAt ?? null;
+
+    // Resolve a empresa preferindo, nesta ordem:
+    //   1. company_id explicito (header X-Tenant-Company-Id, painel)
+    //   2. company_id da batida alvo (garante consistencia com time_entries)
+    //   3. company_id do perfil do colaborador (resolveEmployeeCompanyId)
+    let resolvedCompanyId: string | null = input.companyId ?? null;
 
     if (input.timeEntryId) {
       const entry = await this.repository.getTimeEntryById({
@@ -449,10 +456,22 @@ export class WorkforceService {
           requestedRecordedAt
         });
       }
+      if (!resolvedCompanyId && entry.companyId) {
+        resolvedCompanyId = entry.companyId;
+      }
+    }
+
+    if (!resolvedCompanyId) {
+      resolvedCompanyId = await this.resolveEmployeeCompanyId({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        companyId: null
+      });
     }
 
     const created = await this.repository.createTimeAdjustmentRequest({
       ...input,
+      companyId: resolvedCompanyId,
       targetEntryType,
       requestedRecordedAt,
       originalRecordedAt
@@ -1633,6 +1652,7 @@ export class WorkforceService {
       closure.entries.map((entry, index) => ({
         id: `${closure.id}-${index}`,
         tenantId: closure.tenantId,
+        companyId: null,
         userId: closure.userId,
         contract: null,
         entryType: entry.entryType,
