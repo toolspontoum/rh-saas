@@ -81,21 +81,48 @@ export class TenantUsersService {
     if (input.invitedFresh || !input.email?.trim()) return;
     const meta = await this.repository.getAuthUserAccessMeta(input.userId);
     if (meta.lastSignInAt) return;
-    const out = await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt, input.webBaseUrl);
-    await this.repository.insertAuditLog({
-      tenantId: input.tenantId,
-      companyId: input.companyId,
-      actorUserId: input.actorUserId,
-      action: "tenant.employee.first_access_email_dispatched",
-      resourceType: "tenant_user",
-      resourceId: input.userId,
-      result: "success",
-      metadata: {
-        channel: "recovery",
-        redirectTo: out.redirectTo,
-        webBaseUrl: input.webBaseUrl ?? null
+    // O envio do e-mail de primeiro acesso é melhor-esforço: o vinculo do
+    // colaborador ja foi gravado e nao deve ser revertido por falha de SMTP /
+    // rate limit do provedor (ex.: ElasticEmail / Supabase Auth). Registamos
+    // o erro em audit_log para o admin reenviar pela tela de colaboradores.
+    try {
+      const out = await this.dispatchFirstAccessEmail(input.email, meta.emailConfirmedAt, input.webBaseUrl);
+      await this.repository.insertAuditLog({
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "tenant.employee.first_access_email_dispatched",
+        resourceType: "tenant_user",
+        resourceId: input.userId,
+        result: "success",
+        metadata: {
+          channel: "recovery",
+          redirectTo: out.redirectTo,
+          webBaseUrl: input.webBaseUrl ?? null
+        }
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[tenant-users] first access email dispatch failed (non-fatal)", message);
+      try {
+        await this.repository.insertAuditLog({
+          tenantId: input.tenantId,
+          companyId: input.companyId,
+          actorUserId: input.actorUserId,
+          action: "tenant.employee.first_access_email_failed",
+          resourceType: "tenant_user",
+          resourceId: input.userId,
+          result: "error",
+          metadata: {
+            channel: "recovery",
+            error: message,
+            webBaseUrl: input.webBaseUrl ?? null
+          }
+        });
+      } catch (logErr) {
+        console.error("[tenant-users] failed to write audit log for email failure", logErr);
       }
-    });
+    }
   }
 
   /**
