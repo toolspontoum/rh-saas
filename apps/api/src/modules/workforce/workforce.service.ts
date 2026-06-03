@@ -504,8 +504,8 @@ export class WorkforceService {
   /**
    * Cria um pedido retroativo (criação de batidas em data passada onde o
    * colaborador ainda não tem registos). Validações:
-   *   • `targetDate` dentro dos últimos 2 meses (mês actual + 2 anteriores).
-   *   • `targetDate` ≤ hoje (não permite datas futuras).
+   *   • `targetDate` no mês anterior ou em dias já passados do mês actual.
+   *   • `targetDate` ≤ ontem (não permite hoje nem datas futuras).
    *   • Sem `time_entries` existentes nessa data para o utilizador.
    *   • Sem outro pedido retroativo PENDENTE/APROVADO na mesma data.
    *   • `retroEntries` formam uma sequência válida do ciclo de trabalho
@@ -537,13 +537,15 @@ export class WorkforceService {
     if (!Number.isFinite(targetMidnight.getTime())) {
       throw new Error("RETROACTIVE_TARGET_DATE_INVALID");
     }
-    if (targetMidnight.getTime() > todayMidnight.getTime()) {
+    const latest = new Date(todayMidnight);
+    latest.setDate(latest.getDate() - 1);
+    if (targetMidnight.getTime() > latest.getTime()) {
       throw new Error("RETROACTIVE_TARGET_DATE_FUTURE");
     }
 
-    // Janela: do dia 1 dos 2 meses anteriores até hoje.
-    const earliest = new Date(today.getFullYear(), today.getMonth() - 2, 1);
-    if (targetMidnight.getTime() < earliest.getTime()) {
+    // Janela: dia 1 do mês anterior até ontem (dias já passados do mês actual).
+    const earliest = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    if (targetMidnight.getTime() < earliest.getTime() || targetMidnight.getTime() > latest.getTime()) {
       throw new Error("RETROACTIVE_TARGET_DATE_OUT_OF_WINDOW");
     }
 

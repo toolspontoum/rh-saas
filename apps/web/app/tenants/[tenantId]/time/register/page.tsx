@@ -262,14 +262,18 @@ function buildPendingRetroactiveRow(adj: TimeAdjustment): WorkRow {
   };
 }
 
-/** Lista os primeiros dias dos últimos 2 meses até hoje (datas elegíveis para o pedido retroativo). */
+/** Janela elegível: mês anterior completo + dias já passados do mês atual (exclui hoje). */
 function buildRetroactiveEligibleDates(blockedDates: Set<string>): string[] {
   const today = new Date();
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const end = new Date(todayMidnight);
+  end.setDate(end.getDate() - 1);
+  if (end.getTime() < start.getTime()) return [];
+
   const out: string[] = [];
   const cursor = new Date(start);
-  while (cursor.getTime() <= todayMidnight.getTime()) {
+  while (cursor.getTime() <= end.getTime()) {
     const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
     if (!blockedDates.has(iso)) out.push(iso);
     cursor.setDate(cursor.getDate() + 1);
@@ -913,9 +917,8 @@ export default function TimeRegisterPage() {
 
   /**
    * Abre o modal para "Registrar Ponto Retroativo".
-   * Carrega previamente as batidas e pedidos retroativos dos últimos 2 meses
-   * para que o seletor de data oculte/desabilite datas com registro existente
-   * ou pedido pendente/aprovado.
+   * Carrega previamente batidas e pedidos retroativos do mês anterior e do mês
+   * actual (dias já passados) para ocultar datas com registro ou pedido activo.
    */
   async function openRetroactiveModal() {
     setError(null);
@@ -925,7 +928,7 @@ export default function TimeRegisterPage() {
     setRetroactiveOpen(true);
 
     // Buscamos várias páginas de batidas (limite do servidor é 100/página) para
-    // cobrir os 2 meses anteriores. Para um colaborador típico, 300 batidas
+    // cobrir mês anterior + mês actual. Para um colaborador típico, 300 batidas
     // são suficientes (~5 batidas/dia × 60 dias).
     try {
       const [entriesP1, entriesP2, entriesP3, adjustmentsRes] = await Promise.all([
@@ -1275,7 +1278,7 @@ export default function TimeRegisterPage() {
             type="button"
             className="secondary punch-action-btn retroactive-register-btn"
             onClick={openRetroactiveModal}
-            title="Abrir formulário para registro de ponto retroativo (até 2 meses anteriores)"
+            title="Abrir formulário para registro de ponto retroativo (mês anterior e dias já passados do mês atual)"
           >
             <CalendarPlus size={16} aria-hidden />
             <span>Registrar Ponto Retroativo</span>
@@ -1973,7 +1976,7 @@ export default function TimeRegisterPage() {
             <p className="muted">
               Selecione a data base e informe os horários da jornada. O pedido fica em estado&nbsp;
               <span className="status-pill warning">Pendente</span> até a aprovação do gestor.
-              Apenas datas dos últimos 2 meses sem registro de ponto ficam disponíveis.
+              Apenas datas do mês anterior e dias já passados do mês atual, sem registro de ponto, ficam disponíveis.
             </p>
             <form className="stack" onSubmit={submitRetroactiveRequest}>
               <label>
