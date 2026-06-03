@@ -162,7 +162,9 @@ export class TenantUsersRepository {
       if (roleError) throw roleError;
       const roleRows = (roleData ?? []) as unknown as UserRoleRow[];
 
-      const authById = await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id));
+      const authById = includeAuthMeta
+        ? await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id))
+        : new Map<string, { email: string | null; lastSignInAt: string | null }>();
       let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById, includeAuthMeta);
       if (input.search) {
         items = this.filterTenantUsersBySearch(items, input.search);
@@ -206,7 +208,9 @@ export class TenantUsersRepository {
 
     const profileByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
 
-    const authById = await this.fetchAuthUsersByIds(userIds);
+    const authById = includeAuthMeta
+      ? await this.fetchAuthUsersByIds(userIds)
+      : new Map<string, { email: string | null; lastSignInAt: string | null }>();
     const grouped = new Map<string, TenantUser>();
 
     for (const row of rows) {

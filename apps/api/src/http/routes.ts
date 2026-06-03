@@ -1751,6 +1751,21 @@ apiRouter.post(
   }
 );
 
+apiRouter.get("/v1/tenants/:tenantId/users/:targetUserId", requireAuth, async (req, res) => {
+  try {
+    const result = await tenantUsersHandlers.getUser({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      targetUserId: req.params.targetUserId,
+      companyId: getTenantCompanyId(req)
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 // Histórico de vínculos de empresa/projeto do colaborador.
 apiRouter.get(
   "/v1/tenants/:tenantId/users/:targetUserId/company-history",

@@ -15,6 +15,36 @@ export type TenantUsersListQuery = {
   includeAuthMeta?: string;
 };
 
+/** GET /v1/tenants/:tenantId/users/:targetUserId — um utilizador (detalhe do colaborador). */
+export async function runTenantUserGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  targetUserId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+
+  try {
+    const result = await tenantUsersHandlers.getUser({
+      tenantId,
+      actorUserId: s.userId,
+      targetUserId,
+      companyId: scope.companyId ?? undefined
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:tenantId/users — lista utilizadores (página de gestão). */
 export async function runTenantUsersListGet(
   authorizationHeader: string | null | undefined,

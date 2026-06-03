@@ -104,12 +104,24 @@ const companyHistorySchema = z.object({
   targetUserId: z.string().uuid()
 });
 
+const getUserSchema = z.object({
+  tenantId: z.string().uuid(),
+  actorUserId: z.string().uuid(),
+  targetUserId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional()
+});
+
 export class TenantUsersHandlers {
   constructor(private readonly service: TenantUsersService) {}
 
   async listUsers(input: unknown) {
     const payload = listUsersSchema.parse(input);
     return this.service.listUsers(payload);
+  }
+
+  async getUser(input: unknown) {
+    const payload = getUserSchema.parse(input);
+    return this.service.getUser(payload);
   }
 
   async bulkAccessMeta(input: unknown) {

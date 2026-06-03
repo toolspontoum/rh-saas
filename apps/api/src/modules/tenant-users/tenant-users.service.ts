@@ -169,6 +169,35 @@ export class TenantUsersService {
     });
   }
 
+  async getUser(input: {
+    tenantId: string;
+    actorUserId: string;
+    targetUserId: string;
+    companyId?: string | null;
+  }): Promise<TenantUser | null> {
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+    const listCompanyId = await this.resolveTenantUsersListCompanyId({
+      tenantId: input.tenantId,
+      userId: input.actorUserId,
+      companyId: input.companyId
+    });
+    const user = await this.repository.getUserInTenant(
+      input.tenantId,
+      input.targetUserId,
+      listCompanyId
+    );
+    if (!user) {
+      throw new Error("TARGET_USER_NOT_IN_TENANT");
+    }
+    return user;
+  }
+
   async bulkAccessMeta(input: {
     tenantId: string;
     actorUserId: string;

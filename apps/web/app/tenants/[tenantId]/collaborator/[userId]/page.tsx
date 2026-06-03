@@ -299,35 +299,7 @@ export default function CollaboratorDetailsPage() {
     return documentRequests.filter((item) => item.docTab !== "contracheques");
   }, [documentRequests]);
 
-  async function loadData() {
-    const [usersData, profileData, docsData, requestData, paysData, contextData, companiesData, historyData] =
-      await Promise.all([
-        apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100`),
-        apiFetch<EmployeeProfile | null>(`/v1/tenants/${tenantId}/employee-profile?targetUserId=${userId}`),
-        apiFetch<Paginated<DocumentRecord>>(`/v1/tenants/${tenantId}/documents?page=1&pageSize=100&employeeUserId=${userId}`),
-        apiFetch<Paginated<DocumentRequestRecord>>(
-          `/v1/tenants/${tenantId}/document-requests?page=1&pageSize=100&employeeUserId=${userId}`
-        ),
-        apiFetch<Paginated<PayslipRecord>>(`/v1/tenants/${tenantId}/payslips?page=1&pageSize=50&employeeUserId=${userId}`),
-        apiFetch<Context>(`/v1/tenants/${tenantId}/context`).catch(() => ({ roles: [] as string[] })),
-        // O endpoint /companies retorna array directo (não envelopado em { items }).
-        apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`).catch(
-          () => [] as TenantCompany[]
-        ),
-        apiFetch<{ items: CompanyHistoryItem[] }>(
-          `/v1/tenants/${tenantId}/users/${userId}/company-history`
-        ).catch(() => ({ items: [] as CompanyHistoryItem[] }))
-      ]);
-    setActorRoles(contextData.roles ?? []);
-    setCompanies(Array.isArray(companiesData) ? companiesData : []);
-    setCompanyHistory(historyData.items ?? []);
-
-    const found = usersData.items.find((item) => item.userId === userId) ?? null;
-    setUser(found);
-    setDocuments(docsData.items);
-    setDocumentRequests(requestData.items);
-    setPayslips(paysData.items);
-
+  function applyProfileFromSources(profileData: EmployeeProfile | null, found: TenantUser | null) {
     const mergedFullName = profileData?.fullName ?? found?.fullName ?? "";
     const mergedEmail = profileData?.authEmail ?? found?.email ?? profileData?.personalEmail ?? "";
     const mergedCpf = profileData?.cpf ?? found?.cpf ?? "";
@@ -347,6 +319,40 @@ export default function CollaboratorDetailsPage() {
       employeeTags: profileData?.employeeTags ?? []
     });
     setAvatarLoadFailed(false);
+  }
+
+  async function loadData() {
+    // Fase 1 — dados do formulário (1 utilizador + perfil; evita listar 100 users com N×getUserById no Auth).
+    const [userData, profileData, contextData] = await Promise.all([
+      apiFetch<TenantUser>(`/v1/tenants/${tenantId}/users/${userId}`),
+      apiFetch<EmployeeProfile | null>(`/v1/tenants/${tenantId}/employee-profile?targetUserId=${userId}`),
+      apiFetch<Context>(`/v1/tenants/${tenantId}/context`).catch(() => ({ roles: [] as string[] }))
+    ]);
+    setUser(userData);
+    setActorRoles(contextData.roles ?? []);
+    applyProfileFromSources(profileData, userData);
+
+    // Fase 2 — documentos, contracheques, empresas e histórico (não bloqueiam os campos do formulário).
+    const [docsData, requestData, paysData, companiesData, historyData] = await Promise.all([
+      apiFetch<Paginated<DocumentRecord>>(
+        `/v1/tenants/${tenantId}/documents?page=1&pageSize=100&employeeUserId=${userId}`
+      ),
+      apiFetch<Paginated<DocumentRequestRecord>>(
+        `/v1/tenants/${tenantId}/document-requests?page=1&pageSize=100&employeeUserId=${userId}`
+      ),
+      apiFetch<Paginated<PayslipRecord>>(
+        `/v1/tenants/${tenantId}/payslips?page=1&pageSize=50&employeeUserId=${userId}`
+      ),
+      apiFetch<TenantCompany[]>(`/v1/tenants/${tenantId}/companies`).catch(() => [] as TenantCompany[]),
+      apiFetch<{ items: CompanyHistoryItem[] }>(
+        `/v1/tenants/${tenantId}/users/${userId}/company-history`
+      ).catch(() => ({ items: [] as CompanyHistoryItem[] }))
+    ]);
+    setCompanies(Array.isArray(companiesData) ? companiesData : []);
+    setCompanyHistory(historyData.items ?? []);
+    setDocuments(docsData.items);
+    setDocumentRequests(requestData.items);
+    setPayslips(paysData.items);
   }
 
   useEffect(() => {
