@@ -238,6 +238,13 @@ button.secondary {
   color: #94a3b8 !important;
 }
 
+.retroactive-register-btn {
+  min-width: 280px;
+  padding: 12px 22px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
 button.btn.secondary,
 a.btn.secondary {
   background: #eef3f9;

@@ -137,7 +137,9 @@ export async function runTimeAdjustmentPost(
       reason: body.reason,
       timeEntryId: body.timeEntryId ?? null,
       targetEntryType: body.targetEntryType ?? null,
-      requestedRecordedAt: body.requestedRecordedAt ?? null
+      requestedRecordedAt: body.requestedRecordedAt ?? null,
+      isRetroactive: body.isRetroactive ?? false,
+      retroEntries: body.retroEntries ?? undefined
     });
     return { status: 201, body: result };
   } catch (error) {
