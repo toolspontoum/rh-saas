@@ -424,8 +424,15 @@ export class WorkforceService {
     timeEntryId?: string | null;
     targetEntryType?: TimeEntry["entryType"] | null;
     requestedRecordedAt?: string | null;
+    isRetroactive?: boolean;
+    retroEntries?: Array<{ entryType: TimeEntry["entryType"]; recordedAt: string }>;
   }): Promise<TimeAdjustmentRequest> {
     await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+
+    if (input.isRetroactive) {
+      return this.createRetroactivePunchRequestInternal(input);
+    }
+
     let originalRecordedAt: string | null = null;
     let targetEntryType = input.targetEntryType ?? null;
     let requestedRecordedAt = input.requestedRecordedAt ?? null;
@@ -494,6 +501,134 @@ export class WorkforceService {
     return created;
   }
 
+  /**
+   * Cria um pedido retroativo (criação de batidas em data passada onde o
+   * colaborador ainda não tem registos). Validações:
+   *   • `targetDate` dentro dos últimos 2 meses (mês actual + 2 anteriores).
+   *   • `targetDate` ≤ hoje (não permite datas futuras).
+   *   • Sem `time_entries` existentes nessa data para o utilizador.
+   *   • Sem outro pedido retroativo PENDENTE/APROVADO na mesma data.
+   *   • `retroEntries` formam uma sequência válida do ciclo de trabalho
+   *     (clock_in → lunch_out → lunch_in → clock_out, em ordem cronológica
+   *     dentro do mesmo dia).
+   */
+  private async createRetroactivePunchRequestInternal(input: {
+    tenantId: string;
+    companyId?: string | null;
+    userId: string;
+    targetDate: string;
+    requestedTime: string;
+    reason: string;
+    retroEntries?: Array<{ entryType: TimeEntry["entryType"]; recordedAt: string }>;
+  }): Promise<TimeAdjustmentRequest> {
+    const entries = (input.retroEntries ?? []).slice();
+    if (entries.length === 0) {
+      throw new Error("RETROACTIVE_ENTRIES_REQUIRED");
+    }
+
+    // Garantir formato YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.targetDate)) {
+      throw new Error("RETROACTIVE_TARGET_DATE_INVALID");
+    }
+
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const targetMidnight = new Date(`${input.targetDate}T00:00:00`);
+    if (!Number.isFinite(targetMidnight.getTime())) {
+      throw new Error("RETROACTIVE_TARGET_DATE_INVALID");
+    }
+    if (targetMidnight.getTime() > todayMidnight.getTime()) {
+      throw new Error("RETROACTIVE_TARGET_DATE_FUTURE");
+    }
+
+    // Janela: do dia 1 dos 2 meses anteriores até hoje.
+    const earliest = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+    if (targetMidnight.getTime() < earliest.getTime()) {
+      throw new Error("RETROACTIVE_TARGET_DATE_OUT_OF_WINDOW");
+    }
+
+    // Validar que cada entrada cai dentro da janela do dia civil indicado.
+    // Tolerância de ±24h no UTC para acomodar diferenças de fuso entre o
+    // browser do utilizador e o servidor (ex.: Brasil GMT-3 grava 22:00 local
+    // como 01:00Z do dia seguinte).
+    const targetMs = targetMidnight.getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const e of entries) {
+      const ms = new Date(e.recordedAt).getTime();
+      if (!Number.isFinite(ms)) throw new Error("RETROACTIVE_ENTRY_DATE_INVALID");
+      const delta = ms - targetMs;
+      if (delta < -dayMs || delta > 2 * dayMs) {
+        throw new Error("RETROACTIVE_ENTRY_OUT_OF_TARGET_DATE");
+      }
+    }
+
+    // Validar ordem cronológica e sequência de transições válidas.
+    entries.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+    let last: TimeEntry["entryType"] | null = null;
+    for (const e of entries) {
+      validateTimeEntrySequence(last, e.entryType);
+      last = e.entryType;
+    }
+
+    const resolvedCompanyId = await this.resolveEmployeeCompanyId({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId ?? null
+    });
+
+    // Bloquear se já existirem batidas reais na mesma data civil.
+    const existing = await this.repository.listTimeEntriesInRange({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: resolvedCompanyId,
+      from: input.targetDate,
+      to: input.targetDate
+    });
+    if (existing.length > 0) {
+      throw new Error("RETROACTIVE_TARGET_DATE_HAS_ENTRIES");
+    }
+
+    // Bloquear se já existir outro pedido retroativo activo (pendente/aprovado).
+    const existingRequests = await this.repository.listRetroactiveRequestsByDateRange({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      fromDate: input.targetDate,
+      toDate: input.targetDate
+    });
+    if (existingRequests.some((r) => r.status === "pending" || r.status === "approved")) {
+      throw new Error("RETROACTIVE_REQUEST_ALREADY_EXISTS");
+    }
+
+    const created = await this.repository.createTimeAdjustmentRequest({
+      tenantId: input.tenantId,
+      companyId: resolvedCompanyId,
+      userId: input.userId,
+      targetDate: input.targetDate,
+      requestedTime: entries[0]!.recordedAt.slice(11, 16),
+      reason: input.reason,
+      timeEntryId: null,
+      targetEntryType: entries[0]!.entryType,
+      requestedRecordedAt: entries[0]!.recordedAt,
+      originalRecordedAt: null,
+      isRetroactive: true,
+      retroEntries: entries
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      actorUserId: input.userId,
+      action: "workforce.time_adjustment.retroactive_requested",
+      resourceType: "time_adjustment",
+      resourceId: created.id,
+      metadata: {
+        targetDate: created.targetDate,
+        retroEntries: entries
+      }
+    });
+
+    return created;
+  }
+
   async listTimeAdjustments(input: {
     tenantId: string;
     userId: string;
@@ -547,8 +682,82 @@ export class WorkforceService {
 
     const now = new Date().toISOString();
     const changeLog: Array<Record<string, unknown>> = [...(existing.changeLog ?? [])];
+    const createdEntryIds: string[] = [];
 
-    if (input.status === "approved" && existing.timeEntryId && existing.requestedRecordedAt) {
+    if (input.status === "approved" && existing.isRetroactive) {
+      // Aprovação de pedido retroativo: cria todas as batidas previstas
+      // em `retro_entries`, em ordem cronológica. A trigger SQL valida a
+      // sequência por (tenant, user) — defesa em profundidade.
+      if (!existing.retroEntries || existing.retroEntries.length === 0) {
+        throw new Error("RETROACTIVE_ENTRIES_REQUIRED");
+      }
+      const entryCompanyId = await this.resolveEmployeeCompanyId({
+        tenantId: input.tenantId,
+        userId: existing.userId,
+        companyId: null
+      });
+
+      // Garante que ainda não há batidas reais no dia (defesa contra criações
+      // manuais entre o pedido e a aprovação).
+      const existingDay = await this.repository.listTimeEntriesInRange({
+        tenantId: input.tenantId,
+        userId: existing.userId,
+        companyId: entryCompanyId,
+        from: existing.targetDate,
+        to: existing.targetDate
+      });
+      if (existingDay.length > 0) {
+        throw new Error("RETROACTIVE_TARGET_DATE_HAS_ENTRIES");
+      }
+
+      const sorted = [...existing.retroEntries].sort(
+        (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
+      );
+
+      for (const e of sorted) {
+        const created = await this.repository.createTimeEntry({
+          tenantId: input.tenantId,
+          companyId: entryCompanyId,
+          userId: existing.userId,
+          contract: null,
+          entryType: e.entryType,
+          recordedAt: e.recordedAt,
+          source: "retroactive_approval",
+          note: existing.reason
+        });
+        createdEntryIds.push(created.id);
+
+        await this.repository.insertTimeEntryChangeLog({
+          tenantId: input.tenantId,
+          timeEntryId: created.id,
+          userId: existing.userId,
+          changedBy: input.userId,
+          source: "retroactive_approval",
+          previousRecordedAt: e.recordedAt,
+          newRecordedAt: e.recordedAt,
+          reason: existing.reason,
+          metadata: { adjustmentId: existing.id, retroactive: true }
+        });
+      }
+
+      await this.repository.setRetroactiveCreatedTimeEntryIds({
+        tenantId: input.tenantId,
+        adjustmentId: existing.id,
+        timeEntryIds: createdEntryIds
+      });
+
+      changeLog.push({
+        at: now,
+        action: "approved",
+        by: input.userId,
+        retroactive: true,
+        createdTimeEntryIds: createdEntryIds
+      });
+    } else if (
+      input.status === "approved" &&
+      existing.timeEntryId &&
+      existing.requestedRecordedAt
+    ) {
       const entry = await this.repository.getTimeEntryById({
         tenantId: input.tenantId,
         entryId: existing.timeEntryId
@@ -602,12 +811,21 @@ export class WorkforceService {
       changeLog
     });
 
-    const noticeTitle =
-      input.status === "approved" ? "Ajuste de ponto aprovado" : "Ajuste de ponto recusado";
-    const noticeMessage =
-      input.status === "approved"
-        ? "Sua solicitaÃ§Ã£o de ajuste de ponto foi aprovada."
-        : `Sua solicitaÃ§Ã£o de ajuste de ponto foi recusada.${input.reviewNote ? ` Motivo: ${input.reviewNote}` : ""}`;
+    const isRetro = existing.isRetroactive;
+    const noticeTitle = isRetro
+      ? input.status === "approved"
+        ? "Registro de ponto retroativo aprovado"
+        : "Registro de ponto retroativo recusado"
+      : input.status === "approved"
+        ? "Ajuste de ponto aprovado"
+        : "Ajuste de ponto recusado";
+    const noticeMessage = isRetro
+      ? input.status === "approved"
+        ? `Sua solicitação de registro de ponto retroativo (${existing.targetDate}) foi aprovada.`
+        : `Sua solicitação de registro de ponto retroativo (${existing.targetDate}) foi recusada.${input.reviewNote ? ` Motivo: ${input.reviewNote}` : ""}`
+      : input.status === "approved"
+        ? "Sua solicitação de ajuste de ponto foi aprovada."
+        : `Sua solicitação de ajuste de ponto foi recusada.${input.reviewNote ? ` Motivo: ${input.reviewNote}` : ""}`;
     const noticeCompanyId = await this.repository.getTenantUserCompanyId(input.tenantId, existing.userId);
     if (!noticeCompanyId) throw new Error("EMPLOYEE_COMPANY_NOT_SET");
     const notice = await this.repository.createNotice({
@@ -622,10 +840,16 @@ export class WorkforceService {
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
       actorUserId: input.userId,
-      action: "workforce.time_adjustment.reviewed",
+      action: isRetro
+        ? "workforce.time_adjustment.retroactive_reviewed"
+        : "workforce.time_adjustment.reviewed",
       resourceType: "time_adjustment",
       resourceId: reviewed.id,
-      metadata: { status: reviewed.status }
+      metadata: {
+        status: reviewed.status,
+        retroactive: isRetro,
+        createdTimeEntryIds: createdEntryIds
+      }
     });
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
@@ -633,7 +857,10 @@ export class WorkforceService {
       action: "workforce.notice.created",
       resourceType: "notice",
       resourceId: notice.id,
-      metadata: { target: notice.target, origin: "time_adjustment_review" }
+      metadata: {
+        target: notice.target,
+        origin: isRetro ? "time_retroactive_review" : "time_adjustment_review"
+      }
     });
     return reviewed;
   }

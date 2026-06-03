@@ -2,7 +2,7 @@
 
 import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
+import { CalendarPlus, Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
@@ -36,6 +36,9 @@ type TimeAdjustment = {
   requestedRecordedAt: string | null;
   originalRecordedAt: string | null;
   changeLog: Array<Record<string, unknown>>;
+  isRetroactive?: boolean;
+  retroEntries?: Array<{ entryType: TimeEntry["entryType"]; recordedAt: string }>;
+  createdTimeEntryIds?: string[];
   createdAt: string;
 };
 
@@ -101,6 +104,12 @@ type WorkRow = {
   lunchOut?: TimeEntry;
   lunchIn?: TimeEntry;
   clockOut?: TimeEntry;
+  /** Pedido retroativo associado (pendente: ainda não há entries; aprovado: linkado pelos IDs criados). */
+  retroactiveRequest?: TimeAdjustment;
+  /** Quando true, esta linha é virtual (pedido pendente, sem entries reais). */
+  isPendingRetroactive?: boolean;
+  /** Datas das batidas pretendidas no pedido pendente, indexadas por entryType. */
+  pendingRetroEntries?: Partial<Record<PunchAction, string>>;
 };
 
 const actionLabel: Record<PunchAction, string> = {
@@ -237,6 +246,37 @@ function groupRows(entries: TimeEntry[]): WorkRow[] {
   return rows.reverse();
 }
 
+/** Constrói linha virtual para um pedido retroativo PENDENTE (sem entries reais). */
+function buildPendingRetroactiveRow(adj: TimeAdjustment): WorkRow {
+  const indexed: Partial<Record<PunchAction, string>> = {};
+  for (const e of adj.retroEntries ?? []) {
+    indexed[e.entryType] = e.recordedAt;
+  }
+  return {
+    key: `retro-${adj.id}`,
+    userId: adj.userId,
+    baseDate: adj.targetDate,
+    retroactiveRequest: adj,
+    isPendingRetroactive: true,
+    pendingRetroEntries: indexed
+  };
+}
+
+/** Lista os primeiros dias dos últimos 2 meses até hoje (datas elegíveis para o pedido retroativo). */
+function buildRetroactiveEligibleDates(blockedDates: Set<string>): string[] {
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+  const out: string[] = [];
+  const cursor = new Date(start);
+  while (cursor.getTime() <= todayMidnight.getTime()) {
+    const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+    if (!blockedDates.has(iso)) out.push(iso);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return out.reverse();
+}
+
 export default function TimeRegisterPage() {
   const params = useParams<{ tenantId: string }>();
   const pathname = usePathname();
@@ -296,6 +336,19 @@ export default function TimeRegisterPage() {
 
   const [logsModal, setLogsModal] = useState<{ entryId: string; logs: TimeLog[] } | null>(null);
 
+  // Estado do modal "Registrar Ponto Retroativo".
+  const [retroactiveOpen, setRetroactiveOpen] = useState(false);
+  const [retroactiveTargetDate, setRetroactiveTargetDate] = useState<string>("");
+  const [retroactiveTimes, setRetroactiveTimes] = useState<Record<PunchAction, string>>({
+    clock_in: "",
+    lunch_out: "",
+    lunch_in: "",
+    clock_out: ""
+  });
+  const [retroactiveReason, setRetroactiveReason] = useState<string>("");
+  const [retroactiveSubmitting, setRetroactiveSubmitting] = useState(false);
+  const [retroactiveBlockedDates, setRetroactiveBlockedDates] = useState<Set<string>>(new Set());
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -305,7 +358,33 @@ export default function TimeRegisterPage() {
     ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
   );
 
-  const rows = useMemo(() => groupRows(entries), [entries]);
+  const rows = useMemo(() => {
+    const realRows = groupRows(entries);
+    // Para cada linha real, anexa o pedido retroativo APROVADO que originou as
+    // batidas (link via `createdTimeEntryIds`), permitindo apresentar a tag
+    // "Aprovado" sem outra busca.
+    const retroApprovedById = new Map<string, TimeAdjustment>();
+    for (const adj of adjustments) {
+      if (adj.isRetroactive && adj.status === "approved" && (adj.createdTimeEntryIds ?? []).length > 0) {
+        for (const id of adj.createdTimeEntryIds!) retroApprovedById.set(id, adj);
+      }
+    }
+    for (const row of realRows) {
+      const ids = [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(
+        (v): v is string => Boolean(v)
+      );
+      const linked = ids.map((id) => retroApprovedById.get(id)).find((v) => Boolean(v));
+      if (linked) row.retroactiveRequest = linked;
+    }
+    // Adiciona linhas virtuais para pedidos retroativos PENDENTES (ainda sem
+    // batidas reais). Pedidos rejeitados não aparecem na lista.
+    const pendingVirtualRows: WorkRow[] = adjustments
+      .filter((adj) => adj.isRetroactive && adj.status === "pending")
+      .map(buildPendingRetroactiveRow);
+    const merged = [...realRows, ...pendingVirtualRows];
+    merged.sort((a, b) => (a.baseDate < b.baseDate ? 1 : a.baseDate > b.baseDate ? -1 : 0));
+    return merged;
+  }, [entries, adjustments]);
 
   // Estado do ciclo de trabalho aberto: usamos a última batida real (independente do dia
   // civil) para tolerar jornada nocturna e turnos que cruzam a meia-noite.
@@ -832,6 +911,144 @@ export default function TimeRegisterPage() {
     }
   }
 
+  /**
+   * Abre o modal para "Registrar Ponto Retroativo".
+   * Carrega previamente as batidas e pedidos retroativos dos últimos 2 meses
+   * para que o seletor de data oculte/desabilite datas com registro existente
+   * ou pedido pendente/aprovado.
+   */
+  async function openRetroactiveModal() {
+    setError(null);
+    setRetroactiveTimes({ clock_in: "", lunch_out: "", lunch_in: "", clock_out: "" });
+    setRetroactiveReason("");
+    setRetroactiveTargetDate("");
+    setRetroactiveOpen(true);
+
+    // Buscamos várias páginas de batidas (limite do servidor é 100/página) para
+    // cobrir os 2 meses anteriores. Para um colaborador típico, 300 batidas
+    // são suficientes (~5 batidas/dia × 60 dias).
+    try {
+      const [entriesP1, entriesP2, entriesP3, adjustmentsRes] = await Promise.all([
+        apiFetch<Paginated<TimeEntry>>(`/v1/tenants/${tenantId}/time-entries?page=1&pageSize=100`),
+        apiFetch<Paginated<TimeEntry>>(`/v1/tenants/${tenantId}/time-entries?page=2&pageSize=100`),
+        apiFetch<Paginated<TimeEntry>>(`/v1/tenants/${tenantId}/time-entries?page=3&pageSize=100`),
+        apiFetch<Paginated<TimeAdjustment>>(
+          `/v1/tenants/${tenantId}/time-adjustments?mineOnly=true&page=1&pageSize=100`
+        )
+      ]);
+      const winEntries = [
+        ...(entriesP1.items ?? []),
+        ...(entriesP2.items ?? []),
+        ...(entriesP3.items ?? [])
+      ];
+      const winAdjustments = adjustmentsRes.items ?? [];
+      const blocked = new Set<string>();
+      for (const e of winEntries) blocked.add(e.recordedAt.slice(0, 10));
+      for (const adj of winAdjustments) {
+        if (adj.isRetroactive && (adj.status === "pending" || adj.status === "approved")) {
+          blocked.add(adj.targetDate);
+        }
+      }
+      setRetroactiveBlockedDates(blocked);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  function closeRetroactiveModal() {
+    setRetroactiveOpen(false);
+    setRetroactiveTimes({ clock_in: "", lunch_out: "", lunch_in: "", clock_out: "" });
+    setRetroactiveReason("");
+    setRetroactiveTargetDate("");
+  }
+
+  async function submitRetroactiveRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    if (!retroactiveTargetDate) {
+      setError("Selecione a data base do pedido retroativo.");
+      return;
+    }
+    if (retroactiveBlockedDates.has(retroactiveTargetDate)) {
+      setError("Esta data já tem registro de ponto. Selecione outra data.");
+      return;
+    }
+    if (!retroactiveReason.trim()) {
+      setError("Informe a justificativa do pedido retroativo.");
+      return;
+    }
+
+    // Monta lista de batidas em ordem do ciclo. Cada hora informada (HH:MM) é
+    // combinada com a data base para gerar um ISO local. Pelo menos uma batida
+    // deve ser informada e a sequência precisa começar em clock_in.
+    const order: PunchAction[] = ["clock_in", "lunch_out", "lunch_in", "clock_out"];
+    const entries: Array<{ entryType: PunchAction; recordedAt: string }> = [];
+    for (const t of order) {
+      const raw = retroactiveTimes[t]?.trim();
+      if (!raw) continue;
+      // Aceita "HH:MM" ou "HH:MM:SS"
+      if (!/^\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+        setError(`Hora inválida para "${entryLabel[t]}". Use o formato HH:MM.`);
+        return;
+      }
+      const isoLocal = `${retroactiveTargetDate}T${raw.length === 5 ? `${raw}:00` : raw}`;
+      const localDate = new Date(isoLocal);
+      if (Number.isNaN(localDate.getTime())) {
+        setError(`Hora inválida para "${entryLabel[t]}".`);
+        return;
+      }
+      entries.push({ entryType: t, recordedAt: localDate.toISOString() });
+    }
+
+    if (entries.length === 0) {
+      setError("Informe pelo menos a entrada para registrar o ponto retroativo.");
+      return;
+    }
+    if (entries[0]!.entryType !== "clock_in") {
+      setError("A primeira batida deve ser a entrada (clock_in).");
+      return;
+    }
+
+    // Validação local da sequência cronológica e de transições.
+    let last: PunchAction | null = null;
+    let lastMs = -Infinity;
+    for (const e of entries) {
+      const ms = new Date(e.recordedAt).getTime();
+      if (ms <= lastMs) {
+        setError("As horas das batidas devem estar em ordem cronológica.");
+        return;
+      }
+      const allowedNext = nextAllowedActions(last);
+      if (!allowedNext.includes(e.entryType)) {
+        setError(`Sequência inválida em "${entryLabel[e.entryType]}". Verifique a ordem das batidas.`);
+        return;
+      }
+      last = e.entryType;
+      lastMs = ms;
+    }
+
+    setRetroactiveSubmitting(true);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/time-adjustments`, {
+        method: "POST",
+        body: JSON.stringify({
+          targetDate: retroactiveTargetDate,
+          requestedTime: entries[0]!.recordedAt.slice(11, 16),
+          reason: retroactiveReason.trim(),
+          isRetroactive: true,
+          retroEntries: entries
+        })
+      });
+      setOkMsg("Pedido de registro de ponto retroativo enviado para aprovação.");
+      closeRetroactiveModal();
+      await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRetroactiveSubmitting(false);
+    }
+  }
+
   function rowWorkedMinutes(row: WorkRow): number {
     const gross = diffMinutes(row.clockIn?.recordedAt, row.clockOut?.recordedAt);
     const lunch = diffMinutes(row.lunchOut?.recordedAt, row.lunchIn?.recordedAt);
@@ -842,6 +1059,9 @@ export default function TimeRegisterPage() {
     const entryIds = [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(Boolean);
     return adjustments
       .filter((adj) => {
+        // Pedidos retroativos têm fluxo próprio (linha virtual + tag "Pendente/Aprovado"),
+        // não devem aparecer como ajustes desta linha.
+        if (adj.isRetroactive) return false;
         if (adj.timeEntryId && entryIds.includes(adj.timeEntryId)) return true;
         // Fallback para registros legados que possam nao ter timeEntryId preenchido.
         return !adj.timeEntryId && adj.userId === row.userId && adj.targetDate === row.baseDate;
@@ -1048,7 +1268,20 @@ export default function TimeRegisterPage() {
           { label: "Registro de Ponto" }
         ]}
       />
-      <h1>Registro de Ponto</h1>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <h1 style={{ margin: 0 }}>Registro de Ponto</h1>
+        {canRegister && !canManage ? (
+          <button
+            type="button"
+            className="secondary punch-action-btn retroactive-register-btn"
+            onClick={openRetroactiveModal}
+            title="Abrir formulário para registro de ponto retroativo (até 2 meses anteriores)"
+          >
+            <CalendarPlus size={16} aria-hidden />
+            <span>Registrar Ponto Retroativo</span>
+          </button>
+        ) : null}
+      </div>
       {error ? <p className="error">{error}</p> : null}
       {okMsg ? <p>{okMsg}</p> : null}
 
@@ -1237,6 +1470,26 @@ export default function TimeRegisterPage() {
               const latestAdj = rowLatestAdjustment(row);
               const currentProfile = selectedUserId ? employeeProfiles[selectedUserId] : targetProfile;
 
+              // Pedido retroativo associado a esta linha:
+              //   • linha PENDENTE virtual → row.retroactiveRequest (status pending)
+              //   • linha APROVADA real    → row.retroactiveRequest (status approved, com createdTimeEntryIds)
+              const retroAdj = row.retroactiveRequest;
+              const isPendingRetro = Boolean(row.isPendingRetroactive);
+              const retroEntries = row.pendingRetroEntries ?? {};
+
+              const clockInLabel = isPendingRetro
+                ? toDateLabel(retroEntries.clock_in)
+                : toDateLabel(row.clockIn?.recordedAt);
+              const lunchOutLabel = isPendingRetro
+                ? toDateLabel(retroEntries.lunch_out)
+                : toDateLabel(row.lunchOut?.recordedAt);
+              const lunchInLabel = isPendingRetro
+                ? toDateLabel(retroEntries.lunch_in)
+                : toDateLabel(row.lunchIn?.recordedAt);
+              const clockOutLabel = isPendingRetro
+                ? toDateLabel(retroEntries.clock_out)
+                : toDateLabel(row.clockOut?.recordedAt);
+
               const statusClass =
                 latestAdj?.status === "approved"
                   ? "success"
@@ -1246,13 +1499,20 @@ export default function TimeRegisterPage() {
                       ? "warning"
                       : "neutral";
 
+              const retroStatusClass =
+                retroAdj?.status === "approved"
+                  ? "success"
+                  : retroAdj?.status === "pending"
+                    ? "warning"
+                    : "danger";
+
               return (
                 <tr key={row.key}>
                   <td>{currentProfile?.fullName || row.clockIn?.userName || row.clockOut?.userName || "-"}</td>
                   <td>{currentProfile?.cpf || row.clockIn?.userCpf || row.clockOut?.userCpf || "-"}</td>
                   <td>{new Date(`${row.baseDate}T00:00:00`).toLocaleDateString("pt-BR")}</td>
                   <td>
-                    {toDateLabel(row.clockIn?.recordedAt)}{" "}
+                    {clockInLabel}{" "}
                     {row.clockIn ? (
                       <button
                         className="icon-btn"
@@ -1265,7 +1525,7 @@ export default function TimeRegisterPage() {
                     ) : null}
                   </td>
                   <td>
-                    {toDateLabel(row.lunchOut?.recordedAt)}{" "}
+                    {lunchOutLabel}{" "}
                     {row.lunchOut ? (
                       <button
                         className="icon-btn"
@@ -1278,7 +1538,7 @@ export default function TimeRegisterPage() {
                     ) : null}
                   </td>
                   <td>
-                    {toDateLabel(row.lunchIn?.recordedAt)}{" "}
+                    {lunchInLabel}{" "}
                     {row.lunchIn ? (
                       <button
                         className="icon-btn"
@@ -1291,7 +1551,7 @@ export default function TimeRegisterPage() {
                     ) : null}
                   </td>
                   <td>
-                    {toDateLabel(row.clockOut?.recordedAt)}{" "}
+                    {clockOutLabel}{" "}
                     {row.clockOut ? (
                       <button
                         className="icon-btn"
@@ -1303,13 +1563,33 @@ export default function TimeRegisterPage() {
                       </button>
                     ) : null}
                   </td>
-                  <td><span className={`status-pill ${balance >= 0 ? "success" : "danger"}`}>{formatBalance(balance)}</span></td>
                   <td>
-                    <div className="row" style={{ gap: 6 }}>
+                    {isPendingRetro ? (
+                      <span className="muted">—</span>
+                    ) : (
+                      <span className={`status-pill ${balance >= 0 ? "success" : "danger"}`}>{formatBalance(balance)}</span>
+                    )}
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                       {!canManage ? (
                         <>
-                          <button className="secondary" onClick={() => openAdjustModal(row)}>Solicitar ajuste</button>
-                          {latestAdj ? (
+                          {!isPendingRetro ? (
+                            <button className="secondary" onClick={() => openAdjustModal(row)}>Solicitar ajuste</button>
+                          ) : null}
+                          {retroAdj ? (
+                            <span
+                              className={`status-pill ${retroStatusClass}`}
+                              title="Pedido de registro de ponto retroativo"
+                            >
+                              {retroAdj.status === "approved"
+                                ? "Aprovado"
+                                : retroAdj.status === "rejected"
+                                  ? "Reprovado"
+                                  : "Pendente"}
+                            </span>
+                          ) : null}
+                          {latestAdj && !retroAdj ? (
                             <span className={`status-pill ${statusClass}`}>
                               {latestAdj.status === "pending" ? "Pendente" : latestAdj.status === "approved" ? "Aprovado" : "Reprovado"}
                             </span>
@@ -1317,31 +1597,53 @@ export default function TimeRegisterPage() {
                         </>
                       ) : (
                         <>
-                          <button
-                            className="icon-btn"
-                            style={statusIconStyle(latestAdj?.status)}
-                            title={
-                              latestAdj
-                                ? latestAdj.status === "pending"
-                                  ? "Analisar solicitação pendente"
-                                  : latestAdj.status === "approved"
-                                    ? "Última solicitação aprovada"
-                                    : "Última solicitação recusada"
-                                : "Sem solicitação"
-                            }
-                            onClick={() => latestAdj && setReviewing(latestAdj)}
-                            disabled={!latestAdj}
-                          >
-                            {latestAdj?.status === "approved" ? <CheckCircle2 size={14} /> : latestAdj?.status === "rejected" ? <XCircle size={14} /> : <Clock3 size={14} />}
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Editar"
-                            aria-label="Editar registro de ponto"
-                            onClick={() => openEditRow(row)}
-                          >
-                            <Pencil size={14} />
-                          </button>
+                          {/* Para linhas virtuais retroativas, o admin abre directamente o modal de revisão do pedido. */}
+                          {isPendingRetro && retroAdj ? (
+                            <>
+                              <button
+                                className="icon-btn"
+                                style={statusIconStyle(retroAdj.status)}
+                                title="Analisar pedido de registro retroativo"
+                                onClick={() => setReviewing(retroAdj)}
+                              >
+                                <Clock3 size={14} />
+                              </button>
+                              <span className="status-pill warning">Pendente (retroativo)</span>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="icon-btn"
+                                style={statusIconStyle(latestAdj?.status)}
+                                title={
+                                  latestAdj
+                                    ? latestAdj.status === "pending"
+                                      ? "Analisar solicitação pendente"
+                                      : latestAdj.status === "approved"
+                                        ? "Última solicitação aprovada"
+                                        : "Última solicitação recusada"
+                                    : "Sem solicitação"
+                                }
+                                onClick={() => latestAdj && setReviewing(latestAdj)}
+                                disabled={!latestAdj}
+                              >
+                                {latestAdj?.status === "approved" ? <CheckCircle2 size={14} /> : latestAdj?.status === "rejected" ? <XCircle size={14} /> : <Clock3 size={14} />}
+                              </button>
+                              <button
+                                className="icon-btn"
+                                title="Editar"
+                                aria-label="Editar registro de ponto"
+                                onClick={() => openEditRow(row)}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              {retroAdj && retroAdj.status === "approved" ? (
+                                <span className="status-pill success" title="Originado de pedido retroativo aprovado">
+                                  Retroativo aprovado
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </>
                       )}
                     </div>
@@ -1473,8 +1775,18 @@ export default function TimeRegisterPage() {
 
       <ConfirmModal
         open={Boolean(reviewing)}
-        title="Analisar solicitação de ajuste"
-        message={reviewing ? `${entryLabel[(reviewing.targetEntryType ?? "clock_in") as PunchAction]} | Solicitado por ${reviewing.userId}` : ""}
+        title={
+          reviewing?.isRetroactive
+            ? "Analisar pedido de registro retroativo"
+            : "Analisar solicitação de ajuste"
+        }
+        message={
+          reviewing
+            ? reviewing.isRetroactive
+              ? `Data base ${reviewing.targetDate} | Solicitado por ${reviewing.userId}`
+              : `${entryLabel[(reviewing.targetEntryType ?? "clock_in") as PunchAction]} | Solicitado por ${reviewing.userId}`
+            : ""
+        }
         confirmLabel="Aprovar"
         cancelLabel="Fechar"
         onCancel={() => {
@@ -1487,8 +1799,39 @@ export default function TimeRegisterPage() {
           <div className="stack">
             <p><strong>Status:</strong> {reviewing.status}</p>
             <p><strong>Motivo:</strong> {reviewing.reason}</p>
-            <p><strong>Original:</strong> {toDateLabel(reviewing.originalRecordedAt ?? undefined)}</p>
-            <p><strong>Sugerido:</strong> {toDateLabel(reviewing.requestedRecordedAt ?? undefined)}</p>
+            {reviewing.isRetroactive ? (
+              <>
+                <p><strong>Data base:</strong> {new Date(`${reviewing.targetDate}T00:00:00`).toLocaleDateString("pt-BR")}</p>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Etapa</th>
+                        <th>Horário pretendido</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(reviewing.retroEntries ?? []).map((re, idx) => (
+                        <tr key={`${re.entryType}-${idx}`}>
+                          <td>{entryLabel[re.entryType]}</td>
+                          <td>{new Date(re.recordedAt).toLocaleString("pt-BR")}</td>
+                        </tr>
+                      ))}
+                      {(reviewing.retroEntries ?? []).length === 0 ? (
+                        <tr>
+                          <td colSpan={2} className="muted">Sem batidas no pedido.</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <p><strong>Original:</strong> {toDateLabel(reviewing.originalRecordedAt ?? undefined)}</p>
+                <p><strong>Sugerido:</strong> {toDateLabel(reviewing.requestedRecordedAt ?? undefined)}</p>
+              </>
+            )}
             <label>
               Justificativa da recusa (opcional)
               <textarea value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} />
@@ -1616,6 +1959,83 @@ export default function TimeRegisterPage() {
                 </table>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {retroactiveOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-label="Registrar ponto retroativo">
+            <div className="section-header">
+              <h3 style={{ margin: 0 }}>Registrar Ponto Retroativo</h3>
+              <button type="button" className="secondary" onClick={closeRetroactiveModal}>Fechar</button>
+            </div>
+            <p className="muted">
+              Selecione a data base e informe os horários da jornada. O pedido fica em estado&nbsp;
+              <span className="status-pill warning">Pendente</span> até a aprovação do gestor.
+              Apenas datas dos últimos 2 meses sem registro de ponto ficam disponíveis.
+            </p>
+            <form className="stack" onSubmit={submitRetroactiveRequest}>
+              <label>
+                Data base
+                <select
+                  value={retroactiveTargetDate}
+                  onChange={(e) => setRetroactiveTargetDate(e.target.value)}
+                  required
+                >
+                  <option value="">Selecione a data...</option>
+                  {buildRetroactiveEligibleDates(retroactiveBlockedDates).map((iso) => (
+                    <option key={iso} value={iso}>
+                      {new Date(`${iso}T00:00:00`).toLocaleDateString("pt-BR", {
+                        weekday: "short",
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric"
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {retroactiveTargetDate ? (
+                <div className="card stack" style={{ padding: 12 }}>
+                  <p className="muted" style={{ margin: 0, fontSize: "0.9rem" }}>
+                    Informe os horários (HH:MM) na sequência da jornada. Pelo menos a entrada
+                    é obrigatória. Almoço (saída/retorno) é opcional, mas se preenchido
+                    deve respeitar a ordem.
+                  </p>
+                  {(Object.keys(actionLabel) as PunchAction[]).map((key) => (
+                    <label key={key}>
+                      {actionLabel[key]}
+                      <input
+                        type="time"
+                        step={60}
+                        value={retroactiveTimes[key]}
+                        onChange={(e) =>
+                          setRetroactiveTimes((current) => ({ ...current, [key]: e.target.value }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              <label>
+                Justificativa
+                <textarea
+                  value={retroactiveReason}
+                  onChange={(e) => setRetroactiveReason(e.target.value)}
+                  placeholder="Ex.: Esqueci de bater o ponto no celular ao chegar à obra."
+                  required
+                />
+              </label>
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button type="button" className="secondary" onClick={closeRetroactiveModal}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={retroactiveSubmitting}>
+                  {retroactiveSubmitting ? "Enviando..." : "Enviar pedido"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

@@ -125,7 +125,18 @@ const createAdjustmentSchema = z.object({
   reason: z.string().min(3).max(2000),
   timeEntryId: z.string().uuid().nullable().optional(),
   targetEntryType: z.enum(["clock_in", "lunch_out", "lunch_in", "clock_out"]).nullable().optional(),
-  requestedRecordedAt: z.string().datetime().nullable().optional()
+  requestedRecordedAt: z.string().datetime().nullable().optional(),
+  isRetroactive: z.boolean().optional(),
+  retroEntries: z
+    .array(
+      z.object({
+        entryType: z.enum(["clock_in", "lunch_out", "lunch_in", "clock_out"]),
+        recordedAt: z.string().datetime()
+      })
+    )
+    .min(1)
+    .max(4)
+    .optional()
 });
 
 const listAdjustmentsSchema = z.object({

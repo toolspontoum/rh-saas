@@ -60,6 +60,11 @@ export type TimeEntry = {
   createdAt: string;
 };
 
+export type TimeAdjustmentRetroEntry = {
+  entryType: TimeEntry["entryType"];
+  recordedAt: string;
+};
+
 export type TimeAdjustmentRequest = {
   id: string;
   tenantId: string;
@@ -78,6 +83,12 @@ export type TimeAdjustmentRequest = {
   reviewedBy: string | null;
   reviewedAt: string | null;
   reviewNote: string | null;
+  /** True quando o pedido é uma criação retroativa de batidas (não ajuste). */
+  isRetroactive: boolean;
+  /** Batidas a criar quando aprovado um pedido retroativo. */
+  retroEntries: TimeAdjustmentRetroEntry[];
+  /** IDs das `time_entries` geradas após aprovação de pedido retroativo. */
+  createdTimeEntryIds: string[];
   createdAt: string;
 };
 

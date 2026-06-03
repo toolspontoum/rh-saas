@@ -90,6 +90,14 @@ type TimeEntryRow = {
   created_at: string;
 };
 
+type TimeAdjustmentRetroEntryRow = {
+  entryType?: TimeEntry["entryType"];
+  recordedAt?: string;
+  // tolera variações snake/camel vindas do Postgres jsonb
+  entry_type?: TimeEntry["entryType"];
+  recorded_at?: string;
+};
+
 type TimeAdjustmentRow = {
   id: string;
   tenant_id: string;
@@ -108,6 +116,9 @@ type TimeAdjustmentRow = {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_note: string | null;
+  is_retroactive?: boolean | null;
+  retro_entries?: TimeAdjustmentRetroEntryRow[] | null;
+  created_time_entry_ids?: string[] | null;
   created_at: string;
 };
 
@@ -364,6 +375,16 @@ const mapTimeAdjustment = (row: TimeAdjustmentRow): TimeAdjustmentRequest => ({
   reviewedBy: row.reviewed_by,
   reviewedAt: row.reviewed_at,
   reviewNote: row.review_note,
+  isRetroactive: Boolean(row.is_retroactive),
+  retroEntries: ((row.retro_entries ?? []) as TimeAdjustmentRetroEntryRow[])
+    .map((item) => {
+      const entryType = (item.entryType ?? item.entry_type) as TimeEntry["entryType"] | undefined;
+      const recordedAt = item.recordedAt ?? item.recorded_at;
+      if (!entryType || !recordedAt) return null;
+      return { entryType, recordedAt };
+    })
+    .filter((it): it is { entryType: TimeEntry["entryType"]; recordedAt: string } => Boolean(it)),
+  createdTimeEntryIds: row.created_time_entry_ids ?? [],
   createdAt: row.created_at
 });
 
@@ -998,6 +1019,8 @@ export class WorkforceRepository {
     targetEntryType?: TimeEntry["entryType"] | null;
     requestedRecordedAt?: string | null;
     originalRecordedAt?: string | null;
+    isRetroactive?: boolean;
+    retroEntries?: Array<{ entryType: TimeEntry["entryType"]; recordedAt: string }>;
   }): Promise<TimeAdjustmentRequest> {
     // company_id é NOT NULL na tabela (migration tenant_companies_subscope).
     // Cai para a empresa actual do perfil do colaborador e, por fim, para a
@@ -1018,12 +1041,50 @@ export class WorkforceRepository {
         time_entry_id: input.timeEntryId ?? null,
         target_entry_type: input.targetEntryType ?? null,
         requested_recorded_at: input.requestedRecordedAt ?? null,
-        original_recorded_at: input.originalRecordedAt ?? null
+        original_recorded_at: input.originalRecordedAt ?? null,
+        is_retroactive: input.isRetroactive ?? false,
+        retro_entries: input.retroEntries ?? []
       })
       .select("*")
       .single();
     if (error) throw error;
     return mapTimeAdjustment(data as TimeAdjustmentRow);
+  }
+
+  /**
+   * Lista pedidos retroativos pendentes/aprovados de um colaborador num
+   * intervalo de datas. Usado para bloquear datas duplicadas no seletor.
+   */
+  async listRetroactiveRequestsByDateRange(input: {
+    tenantId: string;
+    userId: string;
+    fromDate: string;
+    toDate: string;
+  }): Promise<TimeAdjustmentRequest[]> {
+    const { data, error } = await this.db
+      .from("time_adjustment_requests")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId)
+      .eq("is_retroactive", true)
+      .gte("target_date", input.fromDate)
+      .lte("target_date", input.toDate)
+      .order("target_date", { ascending: false });
+    if (error) throw error;
+    return ((data ?? []) as TimeAdjustmentRow[]).map(mapTimeAdjustment);
+  }
+
+  async setRetroactiveCreatedTimeEntryIds(input: {
+    tenantId: string;
+    adjustmentId: string;
+    timeEntryIds: string[];
+  }): Promise<void> {
+    const { error } = await this.db
+      .from("time_adjustment_requests")
+      .update({ created_time_entry_ids: input.timeEntryIds })
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.adjustmentId);
+    if (error) throw error;
   }
 
   async listTimeAdjustments(input: {

@@ -1975,7 +1975,9 @@ apiRouter.post("/v1/tenants/:tenantId/time-adjustments", requireAuth, async (req
       reason: req.body?.reason,
       timeEntryId: req.body?.timeEntryId ?? null,
       targetEntryType: req.body?.targetEntryType ?? null,
-      requestedRecordedAt: req.body?.requestedRecordedAt ?? null
+      requestedRecordedAt: req.body?.requestedRecordedAt ?? null,
+      isRetroactive: req.body?.isRetroactive ?? false,
+      retroEntries: req.body?.retroEntries ?? undefined
     });
     return res.status(201).json(result);
   } catch (error) {
