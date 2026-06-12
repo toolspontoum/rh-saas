@@ -6,9 +6,11 @@ import { CalendarPlus, Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
+import { SortableTh } from "../../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../../lib/api";
 import { fetchEmployeeProfilesBulk } from "../../../../../lib/employee-profiles-bulk";
 import { getStoredTenantCompanyId } from "../../../../../lib/tenant-company-scope";
+import { useTableSort } from "../../../../../lib/table-sort";
 
 type Context = { roles: string[] };
 type Paginated<T> = { items: T[] };
@@ -126,6 +128,27 @@ const entryLabel: Record<PunchAction, string> = {
   clock_out: "Saída"
 };
 
+const COLLABORATORS_PAGE_SIZE = 15;
+
+type CollaboratorSortColumn = "fullName" | "email" | "cpf" | "positionTitle";
+type RecordSortColumn =
+  | "fullName"
+  | "cpf"
+  | "baseDate"
+  | "clockIn"
+  | "lunchOut"
+  | "lunchIn"
+  | "clockOut"
+  | "balance";
+
+function defaultPeriodFrom(): string {
+  return new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+}
+
+function defaultPeriodTo(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function toDateLabel(value: string | undefined): string {
   if (!value) return "-";
   return new Date(value).toLocaleString("pt-BR");
@@ -148,6 +171,12 @@ function diffMinutes(startIso: string | undefined, endIso: string | undefined): 
   const end = new Date(endIso).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
   return Math.floor((end - start) / 60000);
+}
+
+function rowWorkedMinutes(row: WorkRow): number {
+  const gross = diffMinutes(row.clockIn?.recordedAt, row.clockOut?.recordedAt);
+  const lunch = diffMinutes(row.lunchOut?.recordedAt, row.lunchIn?.recordedAt);
+  return Math.max(0, gross - lunch);
 }
 
 function formatBalance(minutes: number): string {
@@ -303,6 +332,9 @@ export default function TimeRegisterPage() {
   const [contractFilter, setContractFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [tagFilter, setTagFilter] = useState("all");
+  const [collaboratorsPage, setCollaboratorsPage] = useState(1);
+  const [recordsPeriodFrom, setRecordsPeriodFrom] = useState(defaultPeriodFrom);
+  const [recordsPeriodTo, setRecordsPeriodTo] = useState(defaultPeriodTo);
   const [targetProfile, setTargetProfile] = useState<EmployeeProfile | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [adjustments, setAdjustments] = useState<TimeAdjustment[]>([]);
@@ -410,6 +442,75 @@ export default function TimeRegisterPage() {
       return haystack.includes(userSearch.trim().toLowerCase());
     });
   }, [users, employeeProfiles, departmentFilter, positionFilter, contractFilter, statusFilter, tagFilter, userSearch]);
+
+  useEffect(() => {
+    setCollaboratorsPage(1);
+  }, [departmentFilter, positionFilter, contractFilter, statusFilter, tagFilter, userSearch]);
+
+  const collaboratorSortGetters = useMemo(
+    () => ({
+      fullName: (u: TenantUser) => employeeProfiles[u.userId]?.fullName ?? u.fullName ?? "",
+      email: (u: TenantUser) => u.email ?? "",
+      cpf: (u: TenantUser) => employeeProfiles[u.userId]?.cpf ?? u.cpf ?? "",
+      positionTitle: (u: TenantUser) => employeeProfiles[u.userId]?.positionTitle ?? ""
+    }),
+    [employeeProfiles]
+  );
+
+  const { toggleSort: toggleCollaboratorSort, sortedRows: sortedCollaborators, sort: collaboratorSort } =
+    useTableSort<TenantUser, CollaboratorSortColumn>(filteredUsers, collaboratorSortGetters, "fullName");
+
+  const collaboratorsTotalPages = Math.max(1, Math.ceil(sortedCollaborators.length / COLLABORATORS_PAGE_SIZE));
+
+  const paginatedCollaborators = useMemo(() => {
+    const safePage = Math.min(collaboratorsPage, collaboratorsTotalPages);
+    const start = (safePage - 1) * COLLABORATORS_PAGE_SIZE;
+    return sortedCollaborators.slice(start, start + COLLABORATORS_PAGE_SIZE);
+  }, [sortedCollaborators, collaboratorsPage, collaboratorsTotalPages]);
+
+  const rowsInPeriod = useMemo(() => {
+    return rows.filter((row) => row.baseDate >= recordsPeriodFrom && row.baseDate <= recordsPeriodTo);
+  }, [rows, recordsPeriodFrom, recordsPeriodTo]);
+
+  const recordSortGetters = useMemo(
+    () => ({
+      fullName: (row: WorkRow) => {
+        const profile = selectedUserId ? employeeProfiles[selectedUserId] : targetProfile;
+        return profile?.fullName ?? row.clockIn?.userName ?? row.clockOut?.userName ?? "";
+      },
+      cpf: (row: WorkRow) => {
+        const profile = selectedUserId ? employeeProfiles[selectedUserId] : targetProfile;
+        return profile?.cpf ?? row.clockIn?.userCpf ?? row.clockOut?.userCpf ?? "";
+      },
+      baseDate: (row: WorkRow) => row.baseDate,
+      clockIn: (row: WorkRow) =>
+        row.isPendingRetroactive
+          ? row.pendingRetroEntries?.clock_in ?? ""
+          : row.clockIn?.recordedAt ?? "",
+      lunchOut: (row: WorkRow) =>
+        row.isPendingRetroactive
+          ? row.pendingRetroEntries?.lunch_out ?? ""
+          : row.lunchOut?.recordedAt ?? "",
+      lunchIn: (row: WorkRow) =>
+        row.isPendingRetroactive
+          ? row.pendingRetroEntries?.lunch_in ?? ""
+          : row.lunchIn?.recordedAt ?? "",
+      clockOut: (row: WorkRow) =>
+        row.isPendingRetroactive
+          ? row.pendingRetroEntries?.clock_out ?? ""
+          : row.clockOut?.recordedAt ?? "",
+      balance: (row: WorkRow) => {
+        if (row.isPendingRetroactive) return null;
+        const worked = rowWorkedMinutes(row);
+        const target = workRule?.dailyWorkMinutes ?? 480;
+        return worked - target;
+      }
+    }),
+    [employeeProfiles, selectedUserId, targetProfile, workRule]
+  );
+
+  const { toggleSort: toggleRecordSort, sortedRows: sortedRecordRows, sort: recordSort } =
+    useTableSort<WorkRow, RecordSortColumn>(rowsInPeriod, recordSortGetters, "baseDate");
 
   const departments = useMemo(
     () =>
@@ -572,18 +673,25 @@ export default function TimeRegisterPage() {
     }
   }
 
-  async function loadData(targetUserId?: string, manageModeOverride?: boolean) {
+  async function loadData(
+    targetUserId?: string,
+    manageModeOverride?: boolean,
+    period?: { from: string; to: string }
+  ) {
     const qTarget = targetUserId ? `&targetUserId=${targetUserId}` : "";
     const manageMode = manageModeOverride ?? canManage;
     const companySelected = Boolean(getStoredTenantCompanyId(tenantId));
     const qAdjust = manageMode
       ? `mineOnly=false${targetUserId ? `&targetUserId=${targetUserId}` : ""}`
       : "mineOnly=true";
-    const from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    const to = new Date().toISOString().slice(0, 10);
+    const from = period?.from ?? recordsPeriodFrom;
+    const to = period?.to ?? recordsPeriodTo;
+    const qPeriod = `&from=${from}&to=${to}`;
 
     const [entriesRes, adjustmentsRes, ruleRes, profileRes, summaryRes] = await Promise.all([
-      apiFetch<Paginated<TimeEntry>>(`/v1/tenants/${tenantId}/time-entries?page=1&pageSize=100${qTarget}`),
+      apiFetch<Paginated<TimeEntry>>(
+        `/v1/tenants/${tenantId}/time-entries?page=1&pageSize=500${qTarget}${qPeriod}`
+      ),
       apiFetch<Paginated<TimeAdjustment>>(`/v1/tenants/${tenantId}/time-adjustments?${qAdjust}&page=1&pageSize=100`),
       // Quando o backoffice está em "Todos" (sem empresa/projeto selecionado), algumas instâncias exigem escopo.
       // Nesse caso, mantém UI funcional com regra padrão.
@@ -644,12 +752,13 @@ export default function TimeRegisterPage() {
           const defaultUser =
             employeeUsers.find((user) => user.userId === selectedUserIdFromQuery)?.userId ?? employeeUsers[0]?.userId ?? "";
           setSelectedUserId(defaultUser);
-          await loadData(defaultUser || undefined, true);
+          if (detailMode || selectedUserIdFromQuery) {
+            await loadData(defaultUser || selectedUserIdFromQuery || undefined, true);
+          }
           setUsersLoading(false);
           return;
         }
 
-        await loadData(undefined, false);
         if (ctx.roles.some((role) => ["employee", "viewer"].includes(role))) {
           try {
             await requestDevicePermissions();
@@ -657,6 +766,7 @@ export default function TimeRegisterPage() {
             // Mantém fluxo: o pedido será repetido ao registrar ponto ou ao voltar ao separador.
           }
         }
+        return;
       })
       .catch((err: Error) => {
         setUsersLoading(false);
@@ -708,10 +818,21 @@ export default function TimeRegisterPage() {
   }, [tenantId, canRegister, canManage]);
 
   useEffect(() => {
-    if (!canManage || !selectedUserId) return;
-    loadData(selectedUserId, true).catch((err: Error) => setError(err.message));
+    if (roles.length === 0) return;
+    if (canManage || !canRegister) return;
+    loadData(undefined, false, { from: recordsPeriodFrom, to: recordsPeriodTo }).catch((err: Error) =>
+      setError(err.message)
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUserId]);
+  }, [roles, canManage, canRegister, recordsPeriodFrom, recordsPeriodTo]);
+
+  useEffect(() => {
+    if (!canManage || !selectedUserId || !detailMode) return;
+    loadData(selectedUserId, true, { from: recordsPeriodFrom, to: recordsPeriodTo }).catch((err: Error) =>
+      setError(err.message)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUserId, detailMode, recordsPeriodFrom, recordsPeriodTo]);
 
   useEffect(() => {
     if (canManage) return;
@@ -1052,12 +1173,6 @@ export default function TimeRegisterPage() {
     }
   }
 
-  function rowWorkedMinutes(row: WorkRow): number {
-    const gross = diffMinutes(row.clockIn?.recordedAt, row.clockOut?.recordedAt);
-    const lunch = diffMinutes(row.lunchOut?.recordedAt, row.lunchIn?.recordedAt);
-    return Math.max(0, gross - lunch);
-  }
-
   function rowRelatedAdjustments(row: WorkRow): TimeAdjustment[] {
     const entryIds = [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(Boolean);
     return adjustments
@@ -1358,26 +1473,46 @@ export default function TimeRegisterPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Nome</th>
-                  <th>E-mail</th>
-                  <th>CPF</th>
-                  <th>Departamento</th>
-                  <th>Cargo</th>
-                  <th>Contrato</th>
+                  <SortableTh
+                    label="Nome"
+                    column="fullName"
+                    sortColumn={collaboratorSort.column}
+                    sortDirection={collaboratorSort.direction}
+                    onSort={toggleCollaboratorSort}
+                  />
+                  <SortableTh
+                    label="E-mail"
+                    column="email"
+                    sortColumn={collaboratorSort.column}
+                    sortDirection={collaboratorSort.direction}
+                    onSort={toggleCollaboratorSort}
+                  />
+                  <SortableTh
+                    label="CPF"
+                    column="cpf"
+                    sortColumn={collaboratorSort.column}
+                    sortDirection={collaboratorSort.direction}
+                    onSort={toggleCollaboratorSort}
+                  />
+                  <SortableTh
+                    label="Cargo"
+                    column="positionTitle"
+                    sortColumn={collaboratorSort.column}
+                    sortDirection={collaboratorSort.direction}
+                    onSort={toggleCollaboratorSort}
+                  />
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((u) => {
+                {paginatedCollaborators.map((u) => {
                   const profile = employeeProfiles[u.userId];
                   return (
                     <tr key={u.userId}>
                       <td>{profile?.fullName ?? u.fullName ?? "-"}</td>
                       <td>{u.email ?? "-"}</td>
                       <td>{profile?.cpf ?? u.cpf ?? "-"}</td>
-                      <td>{profile?.department ?? "-"}</td>
                       <td>{profile?.positionTitle ?? "-"}</td>
-                      <td>{profile?.contractType ?? "-"}</td>
                       <td>
                         <button className="secondary" onClick={() => selectUser(u.userId)}>
                           Abrir ponto
@@ -1388,16 +1523,42 @@ export default function TimeRegisterPage() {
                 })}
                 {usersLoading ? (
                   <tr>
-                    <td colSpan={7} className="muted">Carregando colaboradores...</td>
+                    <td colSpan={5} className="muted">Carregando colaboradores...</td>
                   </tr>
-                ) : filteredUsers.length === 0 ? (
+                ) : paginatedCollaborators.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="muted">Nenhum colaborador encontrado.</td>
+                    <td colSpan={5} className="muted">Nenhum colaborador encontrado.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
+          {!usersLoading && sortedCollaborators.length > 0 ? (
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <span className="muted">
+                Página {Math.min(collaboratorsPage, collaboratorsTotalPages)} de {collaboratorsTotalPages} (
+                {sortedCollaborators.length} colaborador{sortedCollaborators.length === 1 ? "" : "es"})
+              </span>
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={collaboratorsPage <= 1}
+                  onClick={() => setCollaboratorsPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={collaboratorsPage >= collaboratorsTotalPages}
+                  onClick={() => setCollaboratorsPage((p) => Math.min(collaboratorsTotalPages, p + 1))}
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1450,23 +1611,93 @@ export default function TimeRegisterPage() {
 
       {(canManage ? detailMode && Boolean(selectedUserId) : true) ? (
       <div className="card table-wrap">
-        <h3>Registros</h3>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <h3 style={{ margin: 0 }}>Registros</h3>
+          <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <label>
+              Período de
+              <input
+                type="date"
+                value={recordsPeriodFrom}
+                max={recordsPeriodTo}
+                onChange={(e) => setRecordsPeriodFrom(e.target.value)}
+              />
+            </label>
+            <label>
+              até
+              <input
+                type="date"
+                value={recordsPeriodTo}
+                min={recordsPeriodFrom}
+                onChange={(e) => setRecordsPeriodTo(e.target.value)}
+              />
+            </label>
+          </div>
+        </div>
         <table className="table">
           <thead>
             <tr>
-              <th>Nome</th>
-              <th>CPF</th>
-              <th>Data base</th>
-              <th>Entrada</th>
-              <th>Início almoço</th>
-              <th>Retorno almoço</th>
-              <th>Saída</th>
-              <th>Banco de horas</th>
+              <SortableTh
+                label="Nome"
+                column="fullName"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="CPF"
+                column="cpf"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Data base"
+                column="baseDate"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Entrada"
+                column="clockIn"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Início almoço"
+                column="lunchOut"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Retorno almoço"
+                column="lunchIn"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Saída"
+                column="clockOut"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
+              <SortableTh
+                label="Banco de horas"
+                column="balance"
+                sortColumn={recordSort.column}
+                sortDirection={recordSort.direction}
+                onSort={toggleRecordSort}
+              />
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {sortedRecordRows.map((row) => {
               const worked = rowWorkedMinutes(row);
               const target = workRule?.dailyWorkMinutes ?? 480;
               const balance = worked - target;
@@ -1654,9 +1885,9 @@ export default function TimeRegisterPage() {
                 </tr>
               );
             })}
-            {rows.length === 0 ? (
+            {sortedRecordRows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="muted">Sem registros para exibir.</td>
+                <td colSpan={9} className="muted">Sem registros no período selecionado.</td>
               </tr>
             ) : null}
           </tbody>

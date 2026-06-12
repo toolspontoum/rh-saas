@@ -1962,6 +1962,8 @@ apiRouter.post("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, re
 apiRouter.get("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, res) => {
   try {
     const targetUserId = typeof req.query.targetUserId === "string" ? req.query.targetUserId : undefined;
+    const from = typeof req.query.from === "string" ? req.query.from : undefined;
+    const to = typeof req.query.to === "string" ? req.query.to : undefined;
     const page = typeof req.query.page === "string" ? req.query.page : undefined;
     const pageSize = typeof req.query.pageSize === "string" ? req.query.pageSize : undefined;
     const result = await workforceHandlers.listTimeEntries({
@@ -1969,6 +1971,8 @@ apiRouter.get("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, res
       companyId: getTenantCompanyId(req),
       userId: (req as AuthenticatedRequest).auth.userId,
       targetUserId,
+      from,
+      to,
       page,
       pageSize
     });
