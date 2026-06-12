@@ -386,6 +386,8 @@ export class WorkforceService {
     userId: string;
     companyId?: string | null;
     targetUserId?: string;
+    from?: string;
+    to?: string;
     page: number;
     pageSize: number;
   }): Promise<PaginatedResult<TimeEntry>> {
@@ -404,6 +406,16 @@ export class WorkforceService {
     let listCompanyId: string | null = input.companyId ?? null;
     if (!listCompanyId && targetUserId === input.userId) {
       listCompanyId = await this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
+    }
+    if (input.from && input.to) {
+      const items = await this.repository.listTimeEntriesInRange({
+        tenantId: input.tenantId,
+        companyId: listCompanyId,
+        userId: targetUserId,
+        from: input.from,
+        to: input.to
+      });
+      return { items, page: 1, pageSize: items.length };
     }
     return this.repository.listTimeEntries({
       tenantId: input.tenantId,

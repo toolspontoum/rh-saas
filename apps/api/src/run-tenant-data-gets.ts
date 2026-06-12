@@ -276,7 +276,7 @@ export async function runTenantRecruitmentApplicationResumeDownloadGet(
 export async function runTenantTimeEntriesListGet(
   authorizationHeader: string | null | undefined,
   tenantId: string,
-  query: { targetUserId?: string; page?: string; pageSize?: string },
+  query: { targetUserId?: string; from?: string; to?: string; page?: string; pageSize?: string },
   xTenantCompanyId: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
@@ -289,6 +289,8 @@ export async function runTenantTimeEntriesListGet(
       companyId: scope.companyId ?? undefined,
       userId: s.userId,
       targetUserId: query.targetUserId,
+      from: query.from,
+      to: query.to,
       page: query.page,
       pageSize: query.pageSize
     });
