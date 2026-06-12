@@ -5,6 +5,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { CalendarPlus, Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
+import { BrDateInput } from "../../../../../components/br-date-input";
 import { ConfirmModal } from "../../../../../components/confirm-modal";
 import { SortableTh } from "../../../../../components/sortable-table-head";
 import { apiFetch } from "../../../../../lib/api";
@@ -1616,20 +1617,18 @@ export default function TimeRegisterPage() {
           <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "end" }}>
             <label>
               Período de
-              <input
-                type="date"
+              <BrDateInput
                 value={recordsPeriodFrom}
                 max={recordsPeriodTo}
-                onChange={(e) => setRecordsPeriodFrom(e.target.value)}
+                onChange={setRecordsPeriodFrom}
               />
             </label>
             <label>
               até
-              <input
-                type="date"
+              <BrDateInput
                 value={recordsPeriodTo}
                 min={recordsPeriodFrom}
-                onChange={(e) => setRecordsPeriodTo(e.target.value)}
+                onChange={setRecordsPeriodTo}
               />
             </label>
           </div>
