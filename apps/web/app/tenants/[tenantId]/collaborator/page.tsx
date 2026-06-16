@@ -30,6 +30,7 @@ type EmployeeProfile = {
   contractType: string | null;
   department: string | null;
   positionTitle: string | null;
+  employeeTags?: string[];
 };
 
 type TenantCompany = { id: string; name: string };
@@ -44,14 +45,13 @@ const UNLINK_WARNING =
 const PURGE_ACCOUNT_WARNING =
   "Excluir a conta apaga e anonimiza os dados cadastrados deste colaborador neste projeto: perfil, documentos, registros de ponto e avisos vinculados. Esta ação não pode ser desfeita.";
 
+const COLLABORATORS_PAGE_SIZE = 15;
+
 type CollaboratorSortColumn =
   | "fullName"
   | "email"
   | "cpf"
-  | "phone"
   | "company"
-  | "department"
-  | "contract"
   | "status"
   | "lastAccess";
 
@@ -72,8 +72,11 @@ export default function CollaboratorListPage() {
   const [accessMeta, setAccessMeta] = useState<Record<string, { email: string | null; lastSignInAt: string | null }>>({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "offboarded">("all");
-  const [contractFilter, setContractFilter] = useState("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [positionFilter, setPositionFilter] = useState("all");
+  const [contractFilter, setContractFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<TenantUser | null>(null);
@@ -149,53 +152,72 @@ export default function CollaboratorListPage() {
   const contracts = useMemo(() => {
     return Array.from(
       new Set(
-        items
-          .map((item) => profiles[item.userId]?.contractType?.trim())
+        Object.values(profiles)
+          .map((p) => p.contractType?.trim())
           .filter((value): value is string => !!value)
       )
     ).sort();
-  }, [items, profiles]);
+  }, [profiles]);
 
   const departments = useMemo(() => {
     return Array.from(
       new Set(
-        items
-          .map((item) => profiles[item.userId]?.department?.trim())
+        Object.values(profiles)
+          .map((p) => p.department?.trim())
           .filter((value): value is string => !!value)
       )
     ).sort();
-  }, [items, profiles]);
+  }, [profiles]);
+
+  const positions = useMemo(() => {
+    return Array.from(
+      new Set(
+        Object.values(profiles)
+          .map((p) => p.positionTitle?.trim())
+          .filter((value): value is string => !!value)
+      )
+    ).sort();
+  }, [profiles]);
+
+  const tags = useMemo(() => {
+    const out = new Set<string>();
+    Object.values(profiles).forEach((p) => (p.employeeTags ?? []).forEach((t) => out.add(t)));
+    return Array.from(out).sort();
+  }, [profiles]);
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
       const profile = profiles[item.userId];
       if (statusFilter !== "all" && item.status !== statusFilter) return false;
-      if (contractFilter !== "all" && (profile?.contractType ?? "") !== contractFilter) return false;
       if (departmentFilter !== "all" && (profile?.department ?? "") !== departmentFilter) return false;
+      if (positionFilter !== "all" && (profile?.positionTitle ?? "") !== positionFilter) return false;
+      if (contractFilter !== "all" && (profile?.contractType ?? "") !== contractFilter) return false;
+      if (tagFilter !== "all" && !(profile?.employeeTags ?? []).includes(tagFilter)) return false;
       if (search.trim()) {
         const haystack = `${item.fullName ?? ""} ${item.email ?? ""} ${item.cpf ?? ""} ${item.phone ?? ""}`.toLowerCase();
         if (!haystack.includes(search.toLowerCase())) return false;
       }
       return true;
     });
-  }, [items, profiles, statusFilter, contractFilter, departmentFilter, search]);
+  }, [items, profiles, statusFilter, departmentFilter, positionFilter, contractFilter, tagFilter, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, departmentFilter, positionFilter, contractFilter, tagFilter, search]);
 
   const sortGetters = useMemo(
     () => ({
       fullName: (item: TenantUser) => item.fullName,
       email: (item: TenantUser) => item.email ?? accessMeta[item.userId]?.email,
       cpf: (item: TenantUser) => item.cpf,
-      phone: (item: TenantUser) => item.phone,
       company: (item: TenantUser) => (item.companyId ? companiesById[item.companyId] ?? null : null),
-      department: (item: TenantUser) => profiles[item.userId]?.department,
-      contract: (item: TenantUser) => profiles[item.userId]?.contractType,
       status: (item: TenantUser) => collaboratorStatusLabel(item),
       lastAccess: (item: TenantUser) => {
         const iso = accessMeta[item.userId]?.lastSignInAt ?? item.lastSignInAt;
         return iso ? new Date(iso).getTime() : null;
       }
     }),
-    [accessMeta, profiles, companiesById]
+    [accessMeta, companiesById]
   );
 
   const { sort, toggleSort, sortedRows } = useTableSort<TenantUser, CollaboratorSortColumn>(
@@ -203,6 +225,14 @@ export default function CollaboratorListPage() {
     sortGetters,
     "fullName"
   );
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / COLLABORATORS_PAGE_SIZE));
+
+  const paginatedRows = useMemo(() => {
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * COLLABORATORS_PAGE_SIZE;
+    return sortedRows.slice(start, start + COLLABORATORS_PAGE_SIZE);
+  }, [sortedRows, page, totalPages]);
 
   function formatLastAccess(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -304,34 +334,70 @@ export default function CollaboratorListPage() {
       {error ? <p className="error">{error}</p> : null}
 
       <div className="card stack">
-        <input
-          placeholder="Buscar por nome, e-mail, CPF ou telefone"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <div className="collaborator-filters-row">
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
-            <option value="all">Status</option>
-            <option value="active">Ativo</option>
-            <option value="inactive">Inativo</option>
-            <option value="offboarded">Desligado</option>
-          </select>
-          <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
-            <option value="all">Departamento</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-          <select value={contractFilter} onChange={(e) => setContractFilter(e.target.value)}>
-            <option value="all">Contrato</option>
-            {contracts.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+        <div
+          className="form-grid"
+          style={{
+            display: "grid",
+            gap: 10,
+            gridTemplateColumns: "repeat(100, minmax(0, 1fr))",
+            alignItems: "end"
+          }}
+        >
+          <label style={{ gridColumn: "span 100" }}>
+            Buscar
+            <input
+              placeholder="Nome, e-mail ou CPF"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <label style={{ gridColumn: "span 33" }}>
+            Departamento
+            <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+              <option value="all">Todos</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ gridColumn: "span 34" }}>
+            Cargo
+            <select value={positionFilter} onChange={(e) => setPositionFilter(e.target.value)}>
+              <option value="all">Todos</option>
+              {positions.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ gridColumn: "span 33" }}>
+            Contrato
+            <select value={contractFilter} onChange={(e) => setContractFilter(e.target.value)}>
+              <option value="all">Todos</option>
+              {contracts.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ gridColumn: "span 25" }}>
+            Status
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
+              <option value="all">Todos</option>
+              <option value="active">Ativo</option>
+              <option value="inactive">Inativo</option>
+              <option value="offboarded">Desligado</option>
+            </select>
+          </label>
+          <label style={{ gridColumn: "span 75" }}>
+            Tag
+            <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+              <option value="all">Todas</option>
+              {tags.map((t) => (
+                <option key={t} value={t}>{t.replace(/-/g, " ")}</option>
+              ))}
+            </select>
+          </label>
         </div>
-      </div>
-
-      <div className="card table-wrap">
+        <div className="table-wrap">
         {loading ? (
           <p className="muted" style={{ margin: 0 }}>
             Carregando colaboradores...
@@ -345,25 +411,20 @@ export default function CollaboratorListPage() {
                 <SortableTh label="Nome" column="fullName" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="E-mail da conta" column="email" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="CPF" column="cpf" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
-                <SortableTh label="Telefone" column="phone" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Empresa / Projeto" column="company" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
-                <SortableTh label="Departamento" column="department" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
-                <SortableTh label="Contrato" column="contract" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Status" column="status" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <SortableTh label="Último acesso" column="lastAccess" sortColumn={sort.column} sortDirection={sort.direction} onSort={toggleSort} />
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((item) => {
-                const profile = profiles[item.userId];
+              {paginatedRows.map((item) => {
                 const meta = accessMeta[item.userId];
                 return (
                   <tr key={item.userId}>
                     <td>{item.fullName ?? "-"}</td>
                     <td>{item.email ?? meta?.email ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
-                    <td>{item.phone ?? "-"}</td>
                     <td>
                       {item.companyId ? (
                         companiesById[item.companyId] ?? (
@@ -375,8 +436,6 @@ export default function CollaboratorListPage() {
                         <span className="muted">Sem vínculo</span>
                       )}
                     </td>
-                    <td>{profile?.department ?? "-"}</td>
-                    <td>{profile?.contractType ?? "-"}</td>
                     <td>
                       {item.dataPurgedAt ? (
                         <span className="badge">Excluído (anonimizado)</span>
@@ -458,6 +517,33 @@ export default function CollaboratorListPage() {
             </tbody>
           </table>
         )}
+        {!loading && sortedRows.length > 0 ? (
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+            <span className="muted">
+              Página {Math.min(page, totalPages)} de {totalPages} ({sortedRows.length} colaborador
+              {sortedRows.length === 1 ? "" : "es"})
+            </span>
+            <div className="row" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        ) : null}
+        </div>
       </div>
 
       <ConfirmModal
