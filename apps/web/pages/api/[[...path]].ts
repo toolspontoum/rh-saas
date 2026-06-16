@@ -109,6 +109,13 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       return res.status(status).json(body);
     }
 
+    if (req.method === "POST" && pathKey === "v1/auth/login") {
+      const bodyLogin = await readJsonBody(req);
+      const { runAuthLoginPost } = await import("@vv/api/run-auth-login");
+      const outLogin = await runAuthLoginPost(bodyLogin);
+      return res.status(outLogin.status).json(outLogin.body);
+    }
+
     if (req.method === "GET" && pathKey === "v1/me/tenants") {
       const { runMyTenantsGet } = await import("@vv/api/run-my-tenants");
       const { status, body } = await runMyTenantsGet(headerAuthorization(req));

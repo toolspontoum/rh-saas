@@ -6,6 +6,7 @@
   "exports": {
     "./create-app": "./src/create-app.ts",
     "./run-platform-me": "./src/run-platform-me.ts",
+    "./run-auth-login": "./src/run-auth-login.ts",
     "./run-platform-admin-gets": "./src/run-platform-admin-gets.ts",
     "./run-my-tenants": "./src/run-my-tenants.ts",
     "./run-tenant-layout-gets": "./src/run-tenant-layout-gets.ts",
