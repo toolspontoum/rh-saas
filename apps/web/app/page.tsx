@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 
 import { apiFetch } from "../lib/api";
+import { mapAuthErrorMessage, signInWithPassword } from "../lib/auth-login";
 import { setToken } from "../lib/auth";
 import { getPublicWebUrl } from "../lib/public-web-url";
 import { supabase } from "../lib/supabase";
@@ -21,17 +22,7 @@ function isManagementRole(role: string): boolean {
 const REMEMBER_EMAIL_KEY = "vv_remember_email";
 
 function mapLoginError(message: string): string {
-  const normalized = message.toLowerCase();
-  if (normalized.includes("email not confirmed")) {
-    return "E-mail não confirmado. Confirme seu cadastro para entrar.";
-  }
-  if (normalized.includes("email rate limit exceeded") || normalized.includes("rate limit")) {
-    return "Muitas tentativas em pouco tempo. Aguarde alguns minutos para reenviar o link.";
-  }
-  if (normalized.includes("invalid login credentials")) {
-    return "E-mail ou senha inválidos.";
-  }
-  return message;
+  return mapAuthErrorMessage(message).message;
 }
 
 function mapHashAuthError(errorCode: string | null, description: string | null): string | null {
@@ -101,17 +92,13 @@ export default function LoginPage() {
     setAllowResendConfirm(false);
     setLoading(true);
 
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    const signIn = await signInWithPassword(email, password);
 
     setLoading(false);
 
-    if (authError || !data.session?.access_token) {
-      const mappedError = mapLoginError(authError?.message ?? "Falha no login.");
-      setError(mappedError);
-      if (mappedError.toLowerCase().includes("não confirmado")) {
+    if (!signIn.ok) {
+      setError(signIn.message);
+      if (signIn.allowResendConfirm) {
         setAllowResendConfirm(true);
       }
       return;
@@ -123,7 +110,7 @@ export default function LoginPage() {
       window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
     }
 
-    setToken(data.session.access_token);
+    setToken(signIn.accessToken);
     try {
       const platform = await apiFetch<{ isPlatformAdmin: boolean }>("/v1/platform/me");
       if (platform.isPlatformAdmin) {

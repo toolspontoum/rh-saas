@@ -21,6 +21,12 @@ liteRouter.get("/v1/health", (_req, res) => {
   return res.status(200).json({ ok: true, scope: "express-lite" });
 });
 
+liteRouter.post("/v1/auth/login", async (req, res) => {
+  const { runAuthLoginPost } = await import("../run-auth-login.js");
+  const result = await runAuthLoginPost(req.body);
+  return res.status(result.status).json(result.body);
+});
+
 liteRouter.get("/v1/platform/me", requireAuth, async (req, res) => {
   try {
     const auth = (req as AuthenticatedRequest).auth;
