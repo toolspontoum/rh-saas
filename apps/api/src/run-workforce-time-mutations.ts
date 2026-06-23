@@ -226,3 +226,28 @@ export async function runTimeReportClosureGet(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+/** GET /v1/tenants/:id/time-reports/closures/:closureId/pdf */
+export async function runTimeReportClosurePdfGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  closureId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.getTimeReportClosurePdf({
+      tenantId,
+      companyId: scope.companyId,
+      userId: s.userId,
+      closureId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}

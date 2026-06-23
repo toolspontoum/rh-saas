@@ -557,6 +557,17 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
         );
         return res.status(out.status).json(out.body);
       }
+      /** GET /v1/tenants/:id/time-reports/closures/:closureId/pdf — evita cold start do Express (504). */
+      if (a7 === "time-reports" && b7 === "closures" && d7 === "pdf" && c7) {
+        const { runTimeReportClosurePdfGet } = await import("@vv/api/run-workforce-time-mutations");
+        const out = await runTimeReportClosurePdfGet(
+          headerAuthorization(req),
+          tenantSegment7,
+          c7,
+          xCompany7
+        );
+        return res.status(out.status).json(out.body);
+      }
     }
 
     if (
