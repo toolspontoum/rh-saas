@@ -101,6 +101,7 @@ type TimeAdjustmentRetroEntryRow = {
 type TimeAdjustmentRow = {
   id: string;
   tenant_id: string;
+  company_id?: string | null;
   user_id: string;
   user_name?: string | null;
   user_cpf?: string | null;
@@ -360,6 +361,7 @@ const mapTimeEntry = (row: TimeEntryRow): TimeEntry => ({
 const mapTimeAdjustment = (row: TimeAdjustmentRow): TimeAdjustmentRequest => ({
   id: row.id,
   tenantId: row.tenant_id,
+  companyId: row.company_id ?? null,
   userId: row.user_id,
   userName: row.user_name ?? null,
   userCpf: row.user_cpf ?? null,
@@ -570,6 +572,16 @@ function withCompany<T extends { eq: (col: string, val: string) => T }>(
   companyId: string | null | undefined
 ): T {
   return companyId ? query.eq("company_id", companyId) : query;
+}
+
+function isoDateAddDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function timeEntryCivilDate(recordedAt: string): string {
+  return recordedAt.slice(0, 10);
 }
 
 /** PostgREST / URL limits: avoid huge `.in("user_id", …)` lists in one request. */
@@ -2503,6 +2515,26 @@ export class WorkforceRepository {
       .order("recorded_at", { ascending: true });
     if (error) throw error;
     return ((data ?? []) as TimeEntryRow[]).map(mapTimeEntry);
+  }
+
+  /**
+   * Batidas num dia civil (YYYY-MM-DD), alinhado ao frontend (`recordedAt.slice(0, 10)`).
+   * Busca janela alargada (±1 dia UTC) para não perder registos por fuso horário.
+   */
+  async listTimeEntriesOnCivilDate(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    civilDate: string;
+  }): Promise<TimeEntry[]> {
+    const candidates = await this.listTimeEntriesInRange({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId,
+      from: isoDateAddDays(input.civilDate, -1),
+      to: isoDateAddDays(input.civilDate, 1)
+    });
+    return candidates.filter((entry) => timeEntryCivilDate(entry.recordedAt) === input.civilDate);
   }
 
   async listApprovedOncallInRange(input: {

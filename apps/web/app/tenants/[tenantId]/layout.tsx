@@ -227,11 +227,12 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
   const nav = useMemo(() => {
     const features = new Set((context?.features ?? []).filter((f) => f.isEnabled).map((f) => f.code));
     const isManagement = roles.some((role) => ["owner", "admin", "manager"].includes(role));
+    const isPreposto = roles.includes("preposto");
+    const canAccessBackoffice = isManagement || isPreposto;
     const canCreateRecruitmentJobs = roles.some((role) =>
       ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
     );
     const isSupervisor = roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
-    const isPreposto = roles.includes("preposto");
     const isPrepostoScoped = isPreposto && !isSupervisor;
     const isCollaborator = roles.some((role) => ["employee", "viewer"].includes(role));
     const isTimeManager = roles.some((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role));
@@ -244,7 +245,6 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     }
     if (isPrepostoScoped) {
       links.push({ label: "Meu Portal", href: `/tenants/${tenantId}/employee/profile`, section: "geral" });
-      links.push({ label: "Minha conta", href: `/tenants/${tenantId}/account`, section: "geral" });
     }
 
     if (features.has("mod_recruitment") && !isEmployeeOnly) {
@@ -288,7 +288,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
       links.push({ label: "Onboarding", href: `/tenants/${tenantId}/onboarding`, section: "geral" });
     }
 
-    if (isManagement) {
+    if (canAccessBackoffice) {
       links.push({ label: "Minha conta", href: `/tenants/${tenantId}/account`, section: "backoffice" });
       links.push({ label: "Regras Ponto", href: `/tenants/${tenantId}/time/rules`, section: "backoffice" });
       links.push({ label: "Documentos padrão", href: `/tenants/${tenantId}/standard-documents`, section: "backoffice" });
@@ -299,7 +299,9 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         href: `/tenants/${tenantId}/employees/auto-import`,
         section: "backoffice"
       });
-      links.push({ label: "Auditoria", href: `/tenants/${tenantId}/audit`, section: "backoffice" });
+      if (isManagement) {
+        links.push({ label: "Auditoria", href: `/tenants/${tenantId}/audit`, section: "backoffice" });
+      }
     }
 
     return links;
