@@ -68,6 +68,7 @@ export type TimeAdjustmentRetroEntry = {
 export type TimeAdjustmentRequest = {
   id: string;
   tenantId: string;
+  companyId: string | null;
   userId: string;
   userName?: string | null;
   userCpf?: string | null;

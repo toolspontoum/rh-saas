@@ -591,12 +591,11 @@ export class WorkforceService {
     });
 
     // Bloquear se já existirem batidas reais na mesma data civil.
-    const existing = await this.repository.listTimeEntriesInRange({
+    const existing = await this.repository.listTimeEntriesOnCivilDate({
       tenantId: input.tenantId,
       userId: input.userId,
       companyId: resolvedCompanyId,
-      from: input.targetDate,
-      to: input.targetDate
+      civilDate: input.targetDate
     });
     if (existing.length > 0) {
       throw new Error("RETROACTIVE_TARGET_DATE_HAS_ENTRIES");
@@ -705,20 +704,21 @@ export class WorkforceService {
       if (!existing.retroEntries || existing.retroEntries.length === 0) {
         throw new Error("RETROACTIVE_ENTRIES_REQUIRED");
       }
-      const entryCompanyId = await this.resolveEmployeeCompanyId({
-        tenantId: input.tenantId,
-        userId: existing.userId,
-        companyId: null
-      });
+      const entryCompanyId =
+        existing.companyId ??
+        (await this.resolveEmployeeCompanyId({
+          tenantId: input.tenantId,
+          userId: existing.userId,
+          companyId: null
+        }));
 
       // Garante que ainda não há batidas reais no dia (defesa contra criações
-      // manuais entre o pedido e a aprovação).
-      const existingDay = await this.repository.listTimeEntriesInRange({
+      // manuais entre o pedido e a aprovação), usando a mesma empresa do pedido.
+      const existingDay = await this.repository.listTimeEntriesOnCivilDate({
         tenantId: input.tenantId,
         userId: existing.userId,
         companyId: entryCompanyId,
-        from: existing.targetDate,
-        to: existing.targetDate
+        civilDate: existing.targetDate
       });
       if (existingDay.length > 0) {
         throw new Error("RETROACTIVE_TARGET_DATE_HAS_ENTRIES");

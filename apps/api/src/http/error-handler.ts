@@ -351,6 +351,31 @@ const knownErrors = new Map<string, ApiErrorShape>([
   ],
   ["TIME_ADJUSTMENT_ALREADY_REVIEWED", { status: 400, code: "TIME_ADJUSTMENT_ALREADY_REVIEWED", message: "Esta solicitacao de ajuste ja foi analisada." }],
   [
+    "RETROACTIVE_TARGET_DATE_HAS_ENTRIES",
+    {
+      status: 409,
+      code: "RETROACTIVE_TARGET_DATE_HAS_ENTRIES",
+      message:
+        "Ja existem batidas de ponto nesta data. Nao e possivel aprovar o registro retroativo enquanto houver registros no dia."
+    }
+  ],
+  [
+    "RETROACTIVE_REQUEST_ALREADY_EXISTS",
+    {
+      status: 409,
+      code: "RETROACTIVE_REQUEST_ALREADY_EXISTS",
+      message: "Ja existe um pedido retroativo pendente ou aprovado para esta data."
+    }
+  ],
+  [
+    "RETROACTIVE_ENTRIES_REQUIRED",
+    {
+      status: 400,
+      code: "RETROACTIVE_ENTRIES_REQUIRED",
+      message: "Informe pelo menos uma batida para o pedido retroativo."
+    }
+  ],
+  [
     "TIME_ADJUSTMENT_OUT_OF_SEQUENCE",
     {
       status: 400,
