@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 
 import { env } from "../../config/env.js";
 import { normalizeSkillList } from "../../lib/skill-tags.js";
+import {
+  buildFolhaDePontoPdf,
+  buildScheduleDescription,
+  groupEntriesToFolhaRows
+} from "./folha-de-ponto-pdf.js";
 import { WorkforceRepository } from "./workforce.repository.js";
 import type {
   EmployeeProfile,
@@ -1889,46 +1894,65 @@ export class WorkforceService {
     closureId: string;
   }): Promise<{ fileName: string; base64: string }> {
     const closure = await this.getTimeReportClosure(input);
-    const rows = groupTimeRowsForReport(
-      closure.entries.map((entry, index) => ({
-        id: `${closure.id}-${index}`,
-        tenantId: closure.tenantId,
-        companyId: null,
-        userId: closure.userId,
-        contract: null,
-        entryType: entry.entryType,
-        recordedAt: entry.recordedAt,
-        source: "closure_snapshot",
-        note: null,
-        createdAt: closure.closedAt
-      }))
-    );
-    const targetMinutes = inferDailyTargetMinutes(
-      closure.summary.expectedMinutes,
-      closure.from,
-      closure.to
-    );
-    const tableLines = buildPartialReportTableLines(rows, targetMinutes);
-    const lines = [
-      "RELATORIO DE PONTO FECHADO",
-      `Mes: ${closure.referenceMonth}`,
-      `Colaborador: ${closure.userName ?? closure.userId}`,
-      `CPF: ${closure.userCpf ?? "-"}`,
-      `Periodo: ${closure.from} a ${closure.to}`,
-      "",
-      `Minutos esperados: ${closure.summary.expectedMinutes}`,
-      `Minutos trabalhados: ${closure.summary.workedMinutes}`,
-      `Horas extras (min): ${closure.summary.overtimeMinutes}`,
-      `Deficit (min): ${closure.summary.deficitMinutes}`,
-      `Saldo banco (min): ${closure.summary.bankBalanceMinutes}`,
-      "",
-      "Registros:",
-      ...tableLines
-    ];
-    const pdf = buildSimplePdf(lines);
+    const companyId =
+      (await this.repository.getTenantUserCompanyId(input.tenantId, closure.userId)) ??
+      null;
+    const [profile, company, shiftAssignment, workRule] = await Promise.all([
+      this.repository.getEmployeeProfile({
+        tenantId: input.tenantId,
+        userId: closure.userId
+      }),
+      companyId ? this.repository.getTenantCompanyLite(input.tenantId, companyId) : Promise.resolve(null),
+      companyId
+        ? this.repository.getActiveShiftAssignment({
+            tenantId: input.tenantId,
+            userId: closure.userId,
+            companyId
+          })
+        : Promise.resolve(null),
+      companyId
+        ? this.repository.getOrCreateTenantWorkRule(input.tenantId, companyId)
+        : Promise.resolve(null)
+    ]);
+
+    const dailyTargetMinutes =
+      shiftAssignment?.template.dailyWorkMinutes ??
+      workRule?.dailyWorkMinutes ??
+      inferDailyTargetMinutes(closure.summary.expectedMinutes, closure.from, closure.to);
+    const lunchBreakMinutes = shiftAssignment?.template.lunchBreakMinutes ?? 60;
+    const rows = groupEntriesToFolhaRows(closure.entries);
+    const pdf = buildFolhaDePontoPdf({
+      from: closure.from,
+      to: closure.to,
+      emittedAt: new Date(closure.closedAt),
+      employer: {
+        legalName: company?.name ?? "Empregador",
+        taxId: company?.taxId ?? null,
+        address: null
+      },
+      employee: {
+        fullName: profile?.fullName ?? closure.userName ?? closure.userId,
+        admissionDate: profile?.admissionDate ?? null,
+        department: profile?.department ?? closure.department ?? null,
+        sector: profile?.department ?? closure.department ?? null,
+        positionTitle: profile?.positionTitle ?? closure.positionTitle ?? null,
+        cpf: profile?.cpf ?? closure.userCpf ?? null,
+        ctps: null,
+        pis: null,
+        eSocial: null
+      },
+      scheduleDescription: buildScheduleDescription({
+        templateName: shiftAssignment?.template.name ?? closure.summary.shiftTemplateName ?? null,
+        dailyWorkMinutes: dailyTargetMinutes,
+        lunchBreakMinutes
+      }),
+      scheduleEffectiveFrom: shiftAssignment?.startsAt?.slice(0, 10) ?? null,
+      dailyTargetMinutes,
+      rows
+    });
     const userToken = (closure.userName ?? closure.userId).replace(/[^a-zA-Z0-9_-]+/g, "-");
     return {
-      fileName: `ponto-fechado-${closure.referenceMonth}-${userToken}.pdf`,
+      fileName: `folha-de-ponto-${closure.referenceMonth}-${userToken}.pdf`,
       base64: pdf.toString("base64")
     };
   }
@@ -1957,15 +1981,7 @@ export class WorkforceService {
             companyId: input.companyId
           })
         : this.requireAdminCompany(input.companyId);
-    const [summary, entries, profile, workRule] = await Promise.all([
-      this.getTimeReportSummary({
-        tenantId: input.tenantId,
-        userId: input.userId,
-        companyId: input.companyId,
-        targetUserId: input.targetUserId,
-        from,
-        to
-      }),
+    const [entries, profile, workRule, company, shiftAssignment] = await Promise.all([
       this.repository.listTimeEntriesInRange({
         tenantId: input.tenantId,
         userId: input.targetUserId,
@@ -1977,31 +1993,50 @@ export class WorkforceService {
         tenantId: input.tenantId,
         userId: input.targetUserId
       }),
-      this.repository.getOrCreateTenantWorkRule(input.tenantId, scopeCompanyId)
+      this.repository.getOrCreateTenantWorkRule(input.tenantId, scopeCompanyId),
+      this.repository.getTenantCompanyLite(input.tenantId, scopeCompanyId),
+      this.repository.getActiveShiftAssignment({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        companyId: scopeCompanyId
+      })
     ]);
-    const rows = groupTimeRowsForReport(entries);
-    const targetMinutes = workRule.dailyWorkMinutes;
-    const tableLines = buildPartialReportTableLines(rows, targetMinutes);
-    const lines = [
-      "RELATORIO DE PONTO PARCIAL",
-      `Mes: ${referenceMonth}`,
-      `Colaborador: ${profile?.fullName ?? input.targetUserId}`,
-      `CPF: ${profile?.cpf ?? "-"}`,
-      `Periodo: ${from} a ${to}`,
-      "",
-      `Minutos esperados: ${summary.expectedMinutes}`,
-      `Minutos trabalhados: ${summary.workedMinutes}`,
-      `Horas extras (min): ${summary.overtimeMinutes}`,
-      `Deficit (min): ${summary.deficitMinutes}`,
-      `Saldo banco (min): ${summary.bankBalanceMinutes}`,
-      "",
-      "Registros:",
-      ...tableLines
-    ];
-    const pdf = buildSimplePdf(lines);
+
+    const dailyTargetMinutes =
+      shiftAssignment?.template.dailyWorkMinutes ?? workRule.dailyWorkMinutes;
+    const lunchBreakMinutes = shiftAssignment?.template.lunchBreakMinutes ?? 60;
+    const rows = groupEntriesToFolhaRows(entries);
+    const pdf = buildFolhaDePontoPdf({
+      from,
+      to,
+      employer: {
+        legalName: company?.name ?? "Empregador",
+        taxId: company?.taxId ?? null,
+        address: null
+      },
+      employee: {
+        fullName: profile?.fullName ?? input.targetUserId,
+        admissionDate: profile?.admissionDate ?? null,
+        department: profile?.department ?? null,
+        sector: profile?.department ?? null,
+        positionTitle: profile?.positionTitle ?? null,
+        cpf: profile?.cpf ?? null,
+        ctps: null,
+        pis: null,
+        eSocial: null
+      },
+      scheduleDescription: buildScheduleDescription({
+        templateName: shiftAssignment?.template.name ?? null,
+        dailyWorkMinutes: dailyTargetMinutes,
+        lunchBreakMinutes
+      }),
+      scheduleEffectiveFrom: shiftAssignment?.startsAt?.slice(0, 10) ?? null,
+      dailyTargetMinutes,
+      rows
+    });
     const userToken = (profile?.fullName ?? input.targetUserId).replace(/[^a-zA-Z0-9_-]+/g, "-");
     return {
-      fileName: `ponto-parcial-${referenceMonth}-${userToken}.pdf`,
+      fileName: `folha-de-ponto-${referenceMonth}-${userToken}.pdf`,
       base64: pdf.toString("base64")
     };
   }
@@ -2748,160 +2783,6 @@ function getMonthRange(referenceMonth: string): { from: string; to: string } {
   return { from, to };
 }
 
-function buildSimplePdf(lines: string[]): Buffer {
-  const safeLines = lines.map((line) =>
-    line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)")
-  );
-  const content = [
-    "BT",
-    "/F1 10 Tf",
-    "50 790 Td",
-    "14 TL",
-    ...safeLines.map((line, index) => `${index === 0 ? "" : "T* " }(${line}) Tj`.trim()),
-    "ET"
-  ].join("\n");
-  const contentLength = Buffer.byteLength(content, "utf8");
-  const objects = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj",
-    `4 0 obj << /Length ${contentLength} >> stream\n${content}\nendstream endobj`,
-    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj"
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-  for (const obj of objects) {
-    offsets.push(Buffer.byteLength(pdf, "utf8"));
-    pdf += `${obj}\n`;
-  }
-  const xrefStart = Buffer.byteLength(pdf, "utf8");
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  for (let i = 1; i <= objects.length; i += 1) {
-    const offset = offsets[i] ?? 0;
-    pdf += `${offset.toString().padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return Buffer.from(pdf, "utf8");
-}
-
-type TimeReportRow = {
-  baseDate: string;
-  clockIn?: string;
-  lunchOut?: string;
-  lunchIn?: string;
-  clockOut?: string;
-};
-
-function groupTimeRowsForReport(entries: TimeEntry[]): TimeReportRow[] {
-  const sorted = [...entries].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
-  const rows: TimeReportRow[] = [];
-  let current: TimeReportRow | null = null;
-  for (const entry of sorted) {
-    if (entry.entryType === "clock_in") {
-      if (current) rows.push(current);
-      current = { baseDate: entry.recordedAt.slice(0, 10), clockIn: entry.recordedAt };
-      continue;
-    }
-    if (!current) current = { baseDate: entry.recordedAt.slice(0, 10) };
-    if (entry.entryType === "lunch_out") current.lunchOut = entry.recordedAt;
-    if (entry.entryType === "lunch_in") current.lunchIn = entry.recordedAt;
-    if (entry.entryType === "clock_out") {
-      current.clockOut = entry.recordedAt;
-      rows.push(current);
-      current = null;
-    }
-  }
-  if (current) rows.push(current);
-  return rows;
-}
-
-function buildPartialReportTableLines(rows: TimeReportRow[], targetMinutes: number): string[] {
-  const header = ["Data base", "Entrada", "Inicio almoco", "Retorno almoco", "Saida", "Banco horas"];
-  const widths = [10, 10, 10, 10, 10, 11];
-  const border = `+${widths.map((w) => "-".repeat(w + 2)).join("+")}+`;
-  const lines = [border, formatBorderedColumns(header, widths), border];
-  for (const row of rows) {
-    const worked = workedMinutesForRow(row);
-    const balance = worked - targetMinutes;
-    const clockIn = splitDateTimeParts(row.clockIn);
-    const lunchOut = splitDateTimeParts(row.lunchOut);
-    const lunchIn = splitDateTimeParts(row.lunchIn);
-    const clockOut = splitDateTimeParts(row.clockOut);
-    lines.push(
-      formatBorderedColumns(
-        [formatDateOnly(row.baseDate), clockIn.date, lunchOut.date, lunchIn.date, clockOut.date, formatBalanceShort(balance)],
-        widths
-      )
-    );
-    lines.push(
-      formatBorderedColumns(
-        ["", clockIn.time, lunchOut.time, lunchIn.time, clockOut.time, ""],
-        widths
-      )
-    );
-    lines.push(border);
-  }
-  if (rows.length === 0) {
-    lines.push(formatBorderedColumns(["Sem registros no periodo.", "", "", "", "", ""], widths));
-    lines.push(border);
-  }
-  return lines;
-}
-
-function formatFixedColumns(values: string[], widths: number[]): string {
-  return values
-    .map((value, idx) => {
-      const width = widths[idx] ?? 10;
-      const safe = value.length > width ? `${value.slice(0, Math.max(0, width - 3))}...` : value;
-      return safe.padEnd(width, " ");
-    })
-    .join(" | ");
-}
-
-function formatBorderedColumns(values: string[], widths: number[]): string {
-  const inner = values
-    .map((value, idx) => {
-      const width = widths[idx] ?? 10;
-      const safe = value.length > width ? `${value.slice(0, Math.max(0, width - 3))}...` : value;
-      return ` ${safe.padEnd(width, " ")} `;
-    })
-    .join("|");
-  return `|${inner}|`;
-}
-
-function formatDateOnly(isoDate: string): string {
-  const [year, month, day] = isoDate.split("-");
-  if (!year || !month || !day) return "-";
-  return `${day}/${month}/${year}`;
-}
-
-function formatDateTime(value?: string): string {
-  if (!value) return "-";
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return "-";
-  const dd = dt.getDate().toString().padStart(2, "0");
-  const mm = (dt.getMonth() + 1).toString().padStart(2, "0");
-  const yyyy = dt.getFullYear().toString().padStart(4, "0");
-  const hh = dt.getHours().toString().padStart(2, "0");
-  const mi = dt.getMinutes().toString().padStart(2, "0");
-  const ss = dt.getSeconds().toString().padStart(2, "0");
-  return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
-}
-
-function splitDateTimeParts(value?: string): { date: string; time: string } {
-  if (!value) return { date: "-", time: "" };
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return { date: "-", time: "" };
-  const dd = dt.getDate().toString().padStart(2, "0");
-  const mm = (dt.getMonth() + 1).toString().padStart(2, "0");
-  const yyyy = dt.getFullYear().toString().padStart(4, "0");
-  const hh = dt.getHours().toString().padStart(2, "0");
-  const mi = dt.getMinutes().toString().padStart(2, "0");
-  const ss = dt.getSeconds().toString().padStart(2, "0");
-  return { date: `${dd}/${mm}/${yyyy}`, time: `${hh}:${mi}:${ss}` };
-}
-
 function inferDailyTargetMinutes(expectedMinutes: number, from: string, to: string): number {
   const weekdays = countWeekdaysInRange(from, to);
   if (weekdays <= 0) return 480;
@@ -2919,30 +2800,6 @@ function countWeekdaysInRange(from: string, to: string): number {
     if (dayOfWeek !== 0 && dayOfWeek !== 6) count += 1;
   }
   return count;
-}
-
-function workedMinutesForRow(row: TimeReportRow): number {
-  const gross = diffMinutesIso(row.clockIn, row.clockOut);
-  const lunch = diffMinutesIso(row.lunchOut, row.lunchIn);
-  return Math.max(0, gross - lunch);
-}
-
-function diffMinutesIso(startIso?: string, endIso?: string): number {
-  if (!startIso || !endIso) return 0;
-  const start = new Date(startIso).getTime();
-  const end = new Date(endIso).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
-  return Math.floor((end - start) / 60000);
-}
-
-function formatBalanceShort(minutes: number): string {
-  const sign = minutes < 0 ? "-" : "+";
-  const abs = Math.abs(minutes);
-  const h = Math.floor(abs / 60)
-    .toString()
-    .padStart(2, "0");
-  const m = (abs % 60).toString().padStart(2, "0");
-  return `${sign}${h}:${m}`;
 }
 
 

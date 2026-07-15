@@ -721,6 +721,22 @@ export class WorkforceRepository {
     return profileIds.filter((id) => allowed.has(id));
   }
 
+  async getTenantCompanyLite(
+    tenantId: string,
+    companyId: string
+  ): Promise<{ id: string; name: string; taxId: string | null } | null> {
+    const { data, error } = await this.db
+      .from("tenant_companies")
+      .select("id,name,tax_id")
+      .eq("tenant_id", tenantId)
+      .eq("id", companyId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const row = data as { id: string; name: string; tax_id: string | null };
+    return { id: row.id, name: row.name, taxId: row.tax_id ?? null };
+  }
+
   async getTenantUserCompanyId(tenantId: string, userId: string): Promise<string | null> {
     const { data, error } = await this.db
       .from("tenant_user_profiles")
