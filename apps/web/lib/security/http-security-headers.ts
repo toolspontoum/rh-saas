@@ -6,7 +6,7 @@
 export type NextSecurityHeader = { key: string; value: string };
 
 const PERMISSIONS_POLICY =
-  "camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=()";
+  "camera=(self), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=()";
 
 function parseSupabaseConnectOrigins(
   url: string | undefined

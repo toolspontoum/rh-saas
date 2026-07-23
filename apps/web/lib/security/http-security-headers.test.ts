@@ -26,6 +26,7 @@ describe("buildSecurityHeadersForNext", () => {
     expect(keys.has("strict-transport-security")).toBe(false);
     expect(headers.find((h) => h.key === "X-Content-Type-Options")?.value).toBe("nosniff");
     expect(headers.find((h) => h.key === "X-Frame-Options")?.value).toBe("DENY");
+    expect(headers.find((h) => h.key === "Permissions-Policy")?.value).toContain("camera=(self)");
   });
 
   it("em produção envia HSTS e CSP com default-src e hosts Supabase", () => {
