@@ -589,8 +589,27 @@ export class RecruitmentRepository {
     const offset = (input.page - 1) * input.pageSize;
     const { data, error } = await query.range(offset, offset + input.pageSize - 1);
     if (error) throw error;
+
+    const items = ((data ?? []) as ApplicationWithCandidateRow[]).map(mapApplicationWithCandidate);
+    const userIds = [...new Set(items.map((item) => item.candidate.userId).filter(Boolean))];
+    const resumeByUserId = new Map<string, boolean>();
+    if (userIds.length > 0) {
+      const { data: profiles, error: profilesError } = await this.db
+        .from("candidate_profiles")
+        .select("user_id, resume_file_path")
+        .in("user_id", userIds);
+      if (profilesError) throw profilesError;
+      for (const profile of profiles ?? []) {
+        const row = profile as { user_id: string; resume_file_path: string | null };
+        resumeByUserId.set(row.user_id, Boolean(row.resume_file_path));
+      }
+    }
+
     return {
-      items: ((data ?? []) as ApplicationWithCandidateRow[]).map(mapApplicationWithCandidate),
+      items: items.map((item) => ({
+        ...item,
+        hasResume: resumeByUserId.get(item.candidate.userId) ?? false
+      })),
       page: input.page,
       pageSize: input.pageSize
     };

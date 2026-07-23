@@ -132,6 +132,8 @@ export type JobApplicationWithCandidate = JobApplication & {
     Candidate,
     "id" | "userId" | "fullName" | "email" | "phone" | "cpf" | "source" | "contract" | "isActive"
   >;
+  /** Indica se o perfil do candidato tem currículo anexado. */
+  hasResume?: boolean;
 };
 
 export type JobApplicationWithRelations = JobApplicationWithCandidate & {
