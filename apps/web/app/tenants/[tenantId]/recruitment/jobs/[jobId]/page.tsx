@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import DOMPurify from "dompurify";
+import { Eye } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../../components/breadcrumbs";
 import { EmptyState } from "../../../../../../components/empty-state";
@@ -42,11 +43,17 @@ type Application = {
   status: "submitted" | "in_review" | "approved" | "rejected" | "withdrawn" | "archived";
   coverLetter: string | null;
   createdAt: string;
+  hasResume?: boolean;
   candidate: {
     fullName: string;
     email: string;
     contract: string | null;
   };
+};
+
+type ResumeDownloadResult = {
+  downloadUrl: string;
+  fileName: string;
 };
 
 type Paginated<T> = { items: T[] };
@@ -67,6 +74,7 @@ export default function RecruitmentJobDetailPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [applicationsError, setApplicationsError] = useState<string | null>(null);
+  const [downloadingResumeId, setDownloadingResumeId] = useState<string | null>(null);
 
   useEffect(() => {
     setError(null);
@@ -81,6 +89,21 @@ export default function RecruitmentJobDetailPage() {
         setApplicationsError(err.message);
       });
   }, [tenantId, jobId]);
+
+  async function downloadResume(applicationId: string) {
+    setError(null);
+    setDownloadingResumeId(applicationId);
+    try {
+      const result = await apiFetch<ResumeDownloadResult>(
+        `/v1/tenants/${tenantId}/recruitment/applications/${applicationId}/resume-download`
+      );
+      window.open(result.downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDownloadingResumeId(null);
+    }
+  }
 
   const statusCount = useMemo(() => {
     return applications.reduce<Record<string, number>>((acc, item) => {
@@ -173,7 +196,13 @@ export default function RecruitmentJobDetailPage() {
         ) : (
           <table className="table">
             <thead>
-              <tr><th>Nome</th><th>Email</th><th>Status</th><th>Data</th></tr>
+              <tr>
+                <th>Nome</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Data</th>
+                <th>Ações</th>
+              </tr>
             </thead>
             <tbody>
               {applications.map((item) => (
@@ -196,6 +225,30 @@ export default function RecruitmentJobDetailPage() {
                                 : item.status}
                   </td>
                   <td>{new Date(item.createdAt).toLocaleString("pt-BR")}</td>
+                  <td>
+                    <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                      {item.hasResume ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={downloadingResumeId === item.id}
+                          onClick={() => void downloadResume(item.id)}
+                        >
+                          {downloadingResumeId === item.id ? "Baixando…" : "Baixar currículo"}
+                        </button>
+                      ) : null}
+                      <Link
+                        href={`/tenants/${tenantId}/recruitment/candidates/${item.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="icon-btn"
+                        title="Visualizar"
+                        aria-label="Visualizar candidatura"
+                      >
+                        <Eye size={16} />
+                      </Link>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

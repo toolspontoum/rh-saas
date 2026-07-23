@@ -319,6 +319,11 @@ export default function RecruitmentCandidateApplicationDetailsPage() {
           >
             Voltar
           </button>
+          {item?.candidateProfile?.resumeFilePath ? (
+            <button type="button" className="secondary" onClick={() => void downloadResume()}>
+              Baixar currículo
+            </button>
+          ) : null}
           {item?.status === "approved" ? (
             <>
               <span className="badge application-status-badge application-status-badge--approved">
