@@ -567,13 +567,50 @@ export default function TimeRegisterPage() {
   }
 
   async function startCamera() {
-    if (streamRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("Câmera indisponível neste contexto. Use HTTPS e um navegador atualizado.");
     }
+
+    const attachStream = async (stream: MediaStream) => {
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) return;
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      try {
+        await video.play();
+      } catch {
+        // Autoplay pode falhar sem gesto; o preview ainda costuma aparecer ao capturar.
+      }
+    };
+
+    const existing = streamRef.current;
+    if (existing && existing.getVideoTracks().some((t) => t.readyState === "live")) {
+      await attachStream(existing);
+      return;
+    }
+    if (existing) {
+      existing.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    const tryGet = async (constraints: MediaStreamConstraints) =>
+      navigator.mediaDevices.getUserMedia(constraints);
+
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      try {
+        stream = await tryGet({ video: { facingMode: "user" }, audio: false });
+      } catch (first) {
+        const name = first instanceof DOMException ? first.name : "";
+        // Em desktops, facingMode:user pode falhar; tenta qualquer câmera.
+        if (name === "OverconstrainedError" || name === "NotFoundError" || name === "ConstraintNotSatisfiedError") {
+          stream = await tryGet({ video: true, audio: false });
+        } else {
+          throw first;
+        }
+      }
     } catch (e) {
       const name = e instanceof DOMException ? e.name : "";
       if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -581,13 +618,18 @@ export default function TimeRegisterPage() {
           "Permissão da câmera negada. Permita câmera nas configurações do site ou do sistema e tente de novo."
         );
       }
+      if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") {
+        throw new Error(
+          "A câmera está em uso por outro aplicativo ou indisponível. Feche programas que usem a câmera e tente de novo."
+        );
+      }
+      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        throw new Error("Nenhuma câmera foi encontrada neste dispositivo.");
+      }
       throw new Error("Não foi possível iniciar a câmera.");
     }
-    streamRef.current = stream;
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-    }
+
+    await attachStream(stream);
   }
 
   function stopCamera() {
