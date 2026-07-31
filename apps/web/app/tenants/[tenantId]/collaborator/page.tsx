@@ -86,6 +86,20 @@ export default function CollaboratorListPage() {
   const [resendInviteUserId, setResendInviteUserId] = useState<string | null>(null);
   const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
   const [feedbackModal, setFeedbackModal] = useState<{ title: string; message: string } | null>(null);
+  const [pendingEmailAction, setPendingEmailAction] = useState<{
+    type: "password_reset" | "resend_invite";
+    userId: string;
+    fullName: string;
+    email: string;
+  } | null>(null);
+  const [emailActionBusy, setEmailActionBusy] = useState(false);
+
+  function resolveAccountEmail(item: TenantUser): string | null {
+    const fromItem = item.email?.trim().toLowerCase() || null;
+    if (fromItem) return fromItem;
+    const fromMeta = accessMeta[item.userId]?.email?.trim().toLowerCase() || null;
+    return fromMeta;
+  }
 
   async function loadData() {
     setLoading(true);
@@ -194,12 +208,13 @@ export default function CollaboratorListPage() {
       if (contractFilter !== "all" && (profile?.contractType ?? "") !== contractFilter) return false;
       if (tagFilter !== "all" && !(profile?.employeeTags ?? []).includes(tagFilter)) return false;
       if (search.trim()) {
-        const haystack = `${item.fullName ?? ""} ${item.email ?? ""} ${item.cpf ?? ""} ${item.phone ?? ""}`.toLowerCase();
+        const accountEmail = item.email ?? accessMeta[item.userId]?.email ?? "";
+        const haystack = `${item.fullName ?? ""} ${accountEmail} ${item.cpf ?? ""} ${item.phone ?? ""}`.toLowerCase();
         if (!haystack.includes(search.toLowerCase())) return false;
       }
       return true;
     });
-  }, [items, profiles, statusFilter, departmentFilter, positionFilter, contractFilter, tagFilter, search]);
+  }, [items, profiles, accessMeta, statusFilter, departmentFilter, positionFilter, contractFilter, tagFilter, search]);
 
   useEffect(() => {
     setPage(1);
@@ -246,35 +261,67 @@ export default function CollaboratorListPage() {
     }
   }
 
-  async function resendInvite(userId: string) {
-    setResendInviteUserId(userId);
+  function requestResendInvite(item: TenantUser) {
+    const email = resolveAccountEmail(item);
+    if (!email) {
+      setError("Este colaborador não possui e-mail de conta para reenviar o convite.");
+      return;
+    }
+    setError(null);
+    setPendingEmailAction({
+      type: "resend_invite",
+      userId: item.userId,
+      fullName: item.fullName?.trim() || email,
+      email
+    });
+  }
+
+  function requestPasswordReset(item: TenantUser) {
+    const email = resolveAccountEmail(item);
+    if (!email) {
+      setError("Este colaborador não possui e-mail de conta para redefinição de senha.");
+      return;
+    }
+    setError(null);
+    setPendingEmailAction({
+      type: "password_reset",
+      userId: item.userId,
+      fullName: item.fullName?.trim() || email,
+      email
+    });
+  }
+
+  async function confirmPendingEmailAction() {
+    if (!pendingEmailAction || emailActionBusy) return;
+    const action = pendingEmailAction;
+    setEmailActionBusy(true);
     setError(null);
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/resend-invite`, { method: "POST" });
-      setFeedbackModal({
-        title: "Convite enviado",
-        message: "Convite reenviado com sucesso. Você pode continuar reenviando para outros colaboradores sem recarregar a página."
-      });
+      if (action.type === "resend_invite") {
+        setResendInviteUserId(action.userId);
+        await apiFetch(`/v1/tenants/${tenantId}/users/${action.userId}/resend-invite`, { method: "POST" });
+        setPendingEmailAction(null);
+        setFeedbackModal({
+          title: "Convite enviado",
+          message: `Convite reenviado com sucesso para ${action.email}.`
+        });
+      } else {
+        setPasswordResetUserId(action.userId);
+        await apiFetch(`/v1/tenants/${tenantId}/users/${action.userId}/password-reset-email`, {
+          method: "POST"
+        });
+        setPendingEmailAction(null);
+        setFeedbackModal({
+          title: "E-mail enviado",
+          message: `E-mail de redefinição de senha enviado com sucesso para ${action.email}.`
+        });
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setResendInviteUserId(null);
-    }
-  }
-
-  async function sendPasswordResetEmail(userId: string) {
-    setPasswordResetUserId(userId);
-    setError(null);
-    try {
-      await apiFetch(`/v1/tenants/${tenantId}/users/${userId}/password-reset-email`, { method: "POST" });
-      setFeedbackModal({
-        title: "E-mail enviado",
-        message: "E-mail de redefinição de senha enviado com sucesso."
-      });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
       setPasswordResetUserId(null);
+      setEmailActionBusy(false);
     }
   }
 
@@ -420,10 +467,11 @@ export default function CollaboratorListPage() {
             <tbody>
               {paginatedRows.map((item) => {
                 const meta = accessMeta[item.userId];
+                const accountEmail = resolveAccountEmail(item);
                 return (
                   <tr key={item.userId}>
                     <td>{item.fullName ?? "-"}</td>
-                    <td>{item.email ?? meta?.email ?? "-"}</td>
+                    <td>{accountEmail ?? "-"}</td>
                     <td>{item.cpf ?? "-"}</td>
                     <td>
                       {item.companyId ? (
@@ -459,10 +507,11 @@ export default function CollaboratorListPage() {
                             style={{ padding: "4px 10px", fontSize: "0.85rem" }}
                             disabled={
                               Boolean(item.dataPurgedAt) ||
-                              !(item.email ?? meta?.email) ||
-                              resendInviteUserId === item.userId
+                              !accountEmail ||
+                              resendInviteUserId === item.userId ||
+                              emailActionBusy
                             }
-                            onClick={() => void resendInvite(item.userId)}
+                            onClick={() => requestResendInvite(item)}
                           >
                             {resendInviteUserId === item.userId ? "A enviar…" : "Reenviar convite"}
                           </button>
@@ -482,10 +531,11 @@ export default function CollaboratorListPage() {
                           aria-label="Enviar e-mail de redefinição de senha"
                           disabled={
                             Boolean(item.dataPurgedAt) ||
-                            !item.email ||
-                            passwordResetUserId === item.userId
+                            !accountEmail ||
+                            passwordResetUserId === item.userId ||
+                            emailActionBusy
                           }
-                          onClick={() => void sendPasswordResetEmail(item.userId)}
+                          onClick={() => requestPasswordReset(item)}
                         >
                           <Mail size={16} />
                         </button>
@@ -590,6 +640,32 @@ export default function CollaboratorListPage() {
           </label>
         ) : null}
       </ConfirmModal>
+
+      <ConfirmModal
+        open={!!pendingEmailAction}
+        title={
+          pendingEmailAction?.type === "resend_invite"
+            ? "Reenviar convite"
+            : "Enviar redefinição de senha"
+        }
+        message={
+          pendingEmailAction
+            ? pendingEmailAction.type === "resend_invite"
+              ? `Reenviar o convite de primeiro acesso para ${pendingEmailAction.fullName} (${pendingEmailAction.email})?`
+              : `Enviar e-mail de redefinição de senha para ${pendingEmailAction.fullName} (${pendingEmailAction.email})?`
+            : ""
+        }
+        confirmLabel={emailActionBusy ? "A enviar…" : "Confirmar envio"}
+        cancelLabel="Cancelar"
+        busy={emailActionBusy}
+        busyLabel="A enviar…"
+        error={error}
+        onCancel={() => {
+          if (emailActionBusy) return;
+          setPendingEmailAction(null);
+        }}
+        onConfirm={() => void confirmPendingEmailAction()}
+      />
 
       <ConfirmModal
         open={!!feedbackModal}
