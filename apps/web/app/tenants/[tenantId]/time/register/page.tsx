@@ -573,15 +573,21 @@ export default function TimeRegisterPage() {
 
     const attachStream = async (stream: MediaStream) => {
       streamRef.current = stream;
-      const video = videoRef.current;
-      if (!video) return;
-      if (video.srcObject !== stream) {
-        video.srcObject = stream;
-      }
-      try {
-        await video.play();
-      } catch {
-        // Autoplay pode falhar sem gesto; o preview ainda costuma aparecer ao capturar.
+      // O <video> pode montar um tick depois do modal abrir.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const video = videoRef.current;
+        if (video) {
+          if (video.srcObject !== stream) {
+            video.srcObject = stream;
+          }
+          try {
+            await video.play();
+          } catch {
+            // Autoplay pode falhar sem gesto; o preview ainda costuma aparecer.
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     };
 
@@ -595,17 +601,25 @@ export default function TimeRegisterPage() {
       streamRef.current = null;
     }
 
-    const tryGet = async (constraints: MediaStreamConstraints) =>
+    const tryGet = (constraints: MediaStreamConstraints) =>
       navigator.mediaDevices.getUserMedia(constraints);
 
     let stream: MediaStream;
     try {
       try {
-        stream = await tryGet({ video: { facingMode: "user" }, audio: false });
+        // `ideal` evita OverconstrainedError em desktops sem câmera frontal tipada.
+        stream = await tryGet({
+          video: { facingMode: { ideal: "user" } },
+          audio: false
+        });
       } catch (first) {
         const name = first instanceof DOMException ? first.name : "";
-        // Em desktops, facingMode:user pode falhar; tenta qualquer câmera.
-        if (name === "OverconstrainedError" || name === "NotFoundError" || name === "ConstraintNotSatisfiedError") {
+        if (
+          name === "OverconstrainedError" ||
+          name === "NotFoundError" ||
+          name === "ConstraintNotSatisfiedError" ||
+          name === "TypeError"
+        ) {
           stream = await tryGet({ video: true, audio: false });
         } else {
           throw first;
@@ -613,9 +627,15 @@ export default function TimeRegisterPage() {
       }
     } catch (e) {
       const name = e instanceof DOMException ? e.name : "";
-      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      const message = e instanceof Error ? e.message : String(e);
+      if (
+        name === "NotAllowedError" ||
+        name === "PermissionDeniedError" ||
+        name === "SecurityError" ||
+        /permission|permissions policy|not allowed/i.test(message)
+      ) {
         throw new Error(
-          "Permissão da câmera negada. Permita câmera nas configurações do site ou do sistema e tente de novo."
+          "Permissão da câmera bloqueada. Permita a câmera nas definições do site e do sistema, toque em \"Pedir permissões novamente\" e tente de novo. No telemóvel, o pedido precisa partir desse botão."
         );
       }
       if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") {
@@ -646,21 +666,23 @@ export default function TimeRegisterPage() {
     await startCamera();
   }
 
-  /** Nova tentativa de permissões (gesto do utilizador ou reentrada na página). */
+  /** Nova tentativa de permissões (precisa de gesto do utilizador — botão). */
   function promptPermissionsAgain() {
     setError(null);
     stopCamera();
     requestDevicePermissions().catch((err: Error) => setError(err.message));
   }
 
-  /** Nova tentativa silenciosa (sem apagar outros erros do ecrã) — câmera. */
-  async function tryRequestDevicePermissionsQuiet() {
-    stopCamera();
-    try {
-      await requestDevicePermissions();
-    } catch {
-      // Pode continuar negado; o modal ou o botão voltam a tentar.
-    }
+  function openPunchModal(action: PunchAction) {
+    setError(null);
+    setOkMsg(null);
+    setSelfieData(null);
+    setSelfieBlob(null);
+    setSelfiePath(null);
+    setPunchAt(new Date().toISOString());
+    setActivePunch(action);
+    // Inicia a câmera no mesmo gesto do clique (obrigatório em Safari/iOS e alguns Edge/Chrome).
+    void startCamera().catch((err: Error) => setError(err.message));
   }
 
   function dataUrlToBlob(dataUrl: string): Blob {
@@ -821,24 +843,33 @@ export default function TimeRegisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
-  /** Ao voltar ao separador/janela, volta a pedir localização e câmera (se o browser permitir novo prompt). */
+  /** Ao voltar ao separador: só reanexa o preview se o modal estiver aberto e o stream ainda vivo.
+   * Não chama getUserMedia aqui — sem gesto do utilizador isso falha em Safari/iOS e alguns Edge. */
   useEffect(() => {
     if (!canRegister || canManage) return;
-    const onFocus = () => {
-      void tryRequestDevicePermissionsQuiet();
+    const reattachIfNeeded = () => {
+      if (!activePunch) return;
+      const stream = streamRef.current;
+      const video = videoRef.current;
+      if (!stream || !video) return;
+      if (!stream.getVideoTracks().some((t) => t.readyState === "live")) return;
+      if (video.srcObject !== stream) {
+        video.srcObject = stream;
+      }
+      void video.play().catch(() => undefined);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void tryRequestDevicePermissionsQuiet();
+      if (document.visibilityState === "visible") reattachIfNeeded();
     };
-    window.addEventListener("focus", onFocus);
+    window.addEventListener("focus", reattachIfNeeded);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", reattachIfNeeded);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [tenantId, canRegister, canManage]);
+  }, [tenantId, canRegister, canManage, activePunch]);
 
-  /** Se o utilizador alterar permissões nas definições do browser, tentar de imediato. */
+  /** Se o utilizador alterar permissões nas definições do browser com o modal aberto, tenta de novo. */
   useEffect(() => {
     if (!canRegister || canManage) return;
     if (!navigator.permissions?.query) return;
@@ -847,7 +878,9 @@ export default function TimeRegisterPage() {
       try {
         const status = await navigator.permissions.query(descriptor);
         const onChange = () => {
-          void tryRequestDevicePermissionsQuiet();
+          if (!activePunch) return;
+          if (status.state !== "granted") return;
+          void startCamera().catch((err: Error) => setError(err.message));
         };
         status.addEventListener("change", onChange);
         cleanups.push(() => status.removeEventListener("change", onChange));
@@ -856,9 +889,8 @@ export default function TimeRegisterPage() {
       }
     };
     void watch({ name: "camera" as PermissionName });
-    void watch({ name: "geolocation" as PermissionName });
     return () => cleanups.forEach((fn) => fn());
-  }, [tenantId, canRegister, canManage]);
+  }, [tenantId, canRegister, canManage, activePunch]);
 
   useEffect(() => {
     if (roles.length === 0) return;
@@ -883,7 +915,7 @@ export default function TimeRegisterPage() {
     if (!canRegister) return;
     if (oncallModalOpenedRef.current) return;
     oncallModalOpenedRef.current = true;
-    setActivePunch("clock_in");
+    openPunchModal("clock_in");
   }, [canManage, oncallShiftIdFromQuery, canRegister]);
 
   useEffect(() => {
@@ -903,9 +935,28 @@ export default function TimeRegisterPage() {
       stopCamera();
       return;
     }
-    stopCamera();
-    requestDevicePermissions().catch((err: Error) => setError(err.message));
-    return () => stopCamera();
+    // Reanexa o stream ao <video> quando o modal monta (o start já pode ter ocorrido no clique).
+    let cancelled = false;
+    const attach = async () => {
+      for (let i = 0; i < 20 && !cancelled; i += 1) {
+        const stream = streamRef.current;
+        const video = videoRef.current;
+        if (stream && video) {
+          if (video.srcObject !== stream) video.srcObject = stream;
+          try {
+            await video.play();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    };
+    void attach();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePunch]);
 
@@ -1968,9 +2019,7 @@ export default function TimeRegisterPage() {
                   }
                   onClick={() => {
                     if (!isAllowed) return;
-                    setActivePunch(action);
-                    setPunchAt(new Date().toISOString());
-                    setSelfieData(null);
+                    openPunchModal(action);
                   }}
                 >
                   {!isAllowed ? <Lock size={14} strokeWidth={2.25} aria-hidden /> : null}
@@ -1988,17 +2037,21 @@ export default function TimeRegisterPage() {
         message="Confirme os dados abaixo e capture uma selfie para concluir a batida."
         confirmLabel="Confirmar registro"
         cancelLabel="Cancelar"
+        error={error}
         onCancel={() => {
           setActivePunch(null);
           setSelfieData(null);
+          setSelfieBlob(null);
+          setSelfiePath(null);
+          setError(null);
         }}
         onConfirm={submitPunch}
       >
         <div className="card stack">
           <p><strong>Data e horário:</strong> {new Date(punchAt).toLocaleString("pt-BR")}</p>
           <p className="muted" style={{ fontSize: "0.9rem" }}>
-            Se já negou o acesso antes, altere nas definições do site ou do sistema e toque em &quot;Pedir permissões
-            novamente&quot;.
+            Se a câmera não abrir, permita o acesso nas definições do site/sistema e toque em &quot;Pedir permissões
+            novamente&quot; (esse toque é necessário em muitos telemóveis).
           </p>
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <button type="button" className="secondary" onClick={promptPermissionsAgain}>
@@ -2006,7 +2059,13 @@ export default function TimeRegisterPage() {
             </button>
             {selfieUploading ? <span className="muted">Enviando selfie…</span> : null}
           </div>
-          <video ref={videoRef} muted playsInline style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)" }} />
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            autoPlay
+            style={{ width: "100%", borderRadius: 8, border: "1px solid var(--border)", background: "#111", minHeight: 180 }}
+          />
           <canvas ref={canvasRef} style={{ display: "none" }} />
           {selfieData ? <img src={selfieData} alt="Selfie" style={{ width: 180, borderRadius: 8, border: "1px solid var(--border)" }} /> : null}
           <div className="row">
