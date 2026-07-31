@@ -351,6 +351,8 @@ export default function TimeRegisterPage() {
   const [selfieBlob, setSelfieBlob] = useState<Blob | null>(null);
   const [selfiePath, setSelfiePath] = useState<string | null>(null);
   const [selfieUploading, setSelfieUploading] = useState(false);
+  /** Aviso de câmera (não bloqueia a batida). */
+  const [cameraHint, setCameraHint] = useState<string | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   const [adjustRow, setAdjustRow] = useState<WorkRow | null>(null);
@@ -669,12 +671,14 @@ export default function TimeRegisterPage() {
   /** Nova tentativa de permissões (precisa de gesto do utilizador — botão). */
   function promptPermissionsAgain() {
     setError(null);
+    setCameraHint(null);
     stopCamera();
-    requestDevicePermissions().catch((err: Error) => setError(err.message));
+    requestDevicePermissions().catch((err: Error) => setCameraHint(err.message));
   }
 
   function openPunchModal(action: PunchAction) {
     setError(null);
+    setCameraHint(null);
     setOkMsg(null);
     setSelfieData(null);
     setSelfieBlob(null);
@@ -682,7 +686,8 @@ export default function TimeRegisterPage() {
     setPunchAt(new Date().toISOString());
     setActivePunch(action);
     // Inicia a câmera no mesmo gesto do clique (obrigatório em Safari/iOS e alguns Edge/Chrome).
-    void startCamera().catch((err: Error) => setError(err.message));
+    // Falha de câmera não impede confirmar a batida — selfie é opcional.
+    void startCamera().catch((err: Error) => setCameraHint(err.message));
   }
 
   function dataUrlToBlob(dataUrl: string): Blob {
@@ -703,7 +708,7 @@ export default function TimeRegisterPage() {
 
   async function uploadSelfieIfNeeded(): Promise<string | null> {
     if (selfiePath) return selfiePath;
-    if (!selfieBlob) throw new Error("Capture a selfie antes de confirmar o registro.");
+    if (!selfieBlob) return null;
 
     setSelfieUploading(true);
     try {
@@ -880,7 +885,8 @@ export default function TimeRegisterPage() {
         const onChange = () => {
           if (!activePunch) return;
           if (status.state !== "granted") return;
-          void startCamera().catch((err: Error) => setError(err.message));
+          setCameraHint(null);
+          void startCamera().catch((err: Error) => setCameraHint(err.message));
         };
         status.addEventListener("change", onChange);
         cleanups.push(() => status.removeEventListener("change", onChange));
@@ -982,20 +988,18 @@ export default function TimeRegisterPage() {
     setOkMsg(null);
 
     try {
-      if (!selfieData) {
-        setError("Capture a selfie antes de confirmar o registro.");
-        return;
-      }
-      const uploadedPath = await uploadSelfieIfNeeded();
+      const hasSelfie = Boolean(selfieData);
+      const uploadedPath = hasSelfie ? await uploadSelfieIfNeeded() : null;
 
       const created = await apiFetch<TimeEntry>(`/v1/tenants/${tenantId}/time-entries`, {
         method: "POST",
         body: JSON.stringify({
           entryType: activePunch,
           recordedAt: new Date().toISOString(),
-          source: "web_selfie",
+          source: hasSelfie ? "web_selfie" : "web",
           note: JSON.stringify({
-            selfieCaptured: true,
+            selfieCaptured: hasSelfie,
+            selfieSkipped: !hasSelfie,
             selfiePath: uploadedPath,
             selfieUploadOk: Boolean(uploadedPath)
           })
@@ -1009,7 +1013,7 @@ export default function TimeRegisterPage() {
             method: "POST",
             body: JSON.stringify({
               timeEntryId: created.id,
-              source: "oncall_web_selfie"
+              source: hasSelfie ? "oncall_web_selfie" : "oncall_web"
             })
           }
         );
@@ -1017,8 +1021,10 @@ export default function TimeRegisterPage() {
         oncallModalOpenedRef.current = false;
       }
 
-      if (!uploadedPath && isPlatformAdmin) {
+      if (hasSelfie && !uploadedPath && isPlatformAdmin) {
         setOkMsg(`${entryLabel[activePunch]} registrada. (Selfie pendente — falha no upload)`);
+      } else if (!hasSelfie) {
+        setOkMsg(`${entryLabel[activePunch]} registrada com sucesso (sem selfie).`);
       } else {
         setOkMsg(`${entryLabel[activePunch]} registrada com sucesso.`);
       }
@@ -1026,6 +1032,7 @@ export default function TimeRegisterPage() {
       setSelfieData(null);
       setSelfieBlob(null);
       setSelfiePath(null);
+      setCameraHint(null);
       await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
     } catch (err) {
       setError((err as Error).message);
@@ -2034,7 +2041,7 @@ export default function TimeRegisterPage() {
       <ConfirmModal
         open={Boolean(activePunch)}
         title={activePunch ? actionLabel[activePunch] : "Registro de ponto"}
-        message="Confirme os dados abaixo e capture uma selfie para concluir a batida."
+        message="Confirme os dados abaixo. A selfie é opcional: se a câmera não funcionar, confirme o registro normalmente."
         confirmLabel="Confirmar registro"
         cancelLabel="Cancelar"
         error={error}
@@ -2043,6 +2050,7 @@ export default function TimeRegisterPage() {
           setSelfieData(null);
           setSelfieBlob(null);
           setSelfiePath(null);
+          setCameraHint(null);
           setError(null);
         }}
         onConfirm={submitPunch}
@@ -2050,14 +2058,16 @@ export default function TimeRegisterPage() {
         <div className="card stack">
           <p><strong>Data e horário:</strong> {new Date(punchAt).toLocaleString("pt-BR")}</p>
           <p className="muted" style={{ fontSize: "0.9rem" }}>
-            Se a câmera não abrir, permita o acesso nas definições do site/sistema e toque em &quot;Pedir permissões
-            novamente&quot; (esse toque é necessário em muitos telemóveis).
+            Selfie recomendada, mas não obrigatória. Se a câmera não abrir, toque em &quot;Pedir permissões novamente&quot;
+            ou confirme o registro sem selfie.
           </p>
+          {cameraHint ? <p className="muted" style={{ color: "var(--warning, #b45309)", margin: 0 }}>{cameraHint}</p> : null}
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <button type="button" className="secondary" onClick={promptPermissionsAgain}>
               Pedir permissões novamente
             </button>
             {selfieUploading ? <span className="muted">Enviando selfie…</span> : null}
+            {selfieData ? <span className="badge">Selfie capturada</span> : <span className="muted">Sem selfie</span>}
           </div>
           <video
             ref={videoRef}
