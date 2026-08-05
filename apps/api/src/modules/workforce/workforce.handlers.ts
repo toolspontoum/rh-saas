@@ -10,6 +10,13 @@ import {
   registerOncallShiftEntrySchema,
   updateOncallShiftSchema
 } from "./workforce.oncall-shifts.contracts.js";
+import {
+  createVacationSchema,
+  deleteVacationSchema,
+  getVacationByIdSchema,
+  listVacationsSchema,
+  updateVacationSchema
+} from "./workforce.vacations.contracts.js";
 import { WorkforceService } from "./workforce.service.js";
 
 const booleanFromQuery = z.preprocess((value) => {
@@ -114,8 +121,24 @@ const listTimeEntriesSchema = z.object({
   targetUserId: z.string().uuid().optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  archivedMode: z.enum(["active", "archived"]).default("active"),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(20)
+});
+
+const archiveTimeEntriesSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  entryIds: z.array(z.string().uuid()).min(1).max(20),
+  reason: z.string().min(3).max(2000)
+});
+
+const unarchiveTimeEntriesSchema = z.object({
+  tenantId: z.string().uuid(),
+  companyId: z.string().uuid().nullable().optional(),
+  userId: z.string().uuid(),
+  entryIds: z.array(z.string().uuid()).min(1).max(20)
 });
 
 const createAdjustmentSchema = z.object({
@@ -447,6 +470,16 @@ export class WorkforceHandlers {
     return this.service.listTimeEntries(payload);
   }
 
+  async archiveTimeEntries(input: unknown) {
+    const payload = archiveTimeEntriesSchema.parse(input);
+    return this.service.archiveTimeEntries(payload);
+  }
+
+  async unarchiveTimeEntries(input: unknown) {
+    const payload = unarchiveTimeEntriesSchema.parse(input);
+    return this.service.unarchiveTimeEntries(payload);
+  }
+
   async createAdjustment(input: unknown) {
     const payload = createAdjustmentSchema.parse(input);
     return this.service.createTimeAdjustmentRequest(payload);
@@ -510,6 +543,31 @@ export class WorkforceHandlers {
   async listOncallShiftEvents(input: unknown) {
     const payload = listOncallShiftEventsSchema.parse(input);
     return this.service.listOncallShiftEvents(payload);
+  }
+
+  async createVacation(input: unknown) {
+    const payload = createVacationSchema.parse(input);
+    return this.service.createVacation(payload);
+  }
+
+  async listVacations(input: unknown) {
+    const payload = listVacationsSchema.parse(input);
+    return this.service.listVacations(payload);
+  }
+
+  async getVacationById(input: unknown) {
+    const payload = getVacationByIdSchema.parse(input);
+    return this.service.getVacationById(payload);
+  }
+
+  async updateVacation(input: unknown) {
+    const payload = updateVacationSchema.parse(input);
+    return this.service.updateVacation(payload);
+  }
+
+  async deleteVacation(input: unknown) {
+    const payload = deleteVacationSchema.parse(input);
+    return this.service.deleteVacation(payload);
   }
 
   async getWorkRule(input: unknown) {

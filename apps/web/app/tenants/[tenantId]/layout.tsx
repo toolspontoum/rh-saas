@@ -276,12 +276,9 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
     if (isTimeManager) {
       links.push({ label: "Arquivos de Ponto", href: `/tenants/${tenantId}/time/reports`, section: "operacao" });
     }
-    if (isCollaborator) {
+    if (isCollaborator || isSupervisor || isPreposto) {
       links.push({ label: "Sobreaviso", href: `/tenants/${tenantId}/oncall`, section: "operacao" });
-    }
-
-    if (isSupervisor || isPreposto) {
-      links.push({ label: "Sobreaviso", href: `/tenants/${tenantId}/oncall`, section: "operacao" });
+      links.push({ label: "Férias", href: `/tenants/${tenantId}/vacations`, section: "operacao" });
     }
 
     if (isViewerOnly) {

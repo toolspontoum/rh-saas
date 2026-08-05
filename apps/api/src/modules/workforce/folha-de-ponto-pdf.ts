@@ -9,6 +9,8 @@ export type FolhaPunchRow = {
   lunchOut?: string;
   lunchIn?: string;
   clockOut?: string;
+  /** Texto fixo no lugar dos horários (ex.: "Férias") quando não há batidas. */
+  dayLabel?: string;
 };
 
 export type FolhaDePontoInput = {
@@ -179,7 +181,8 @@ function groupPunchRowsByCivilDate(rows: FolhaPunchRow[]): Map<string, FolhaPunc
       clockIn: prev.clockIn ?? row.clockIn,
       lunchOut: prev.lunchOut ?? row.lunchOut,
       lunchIn: prev.lunchIn ?? row.lunchIn,
-      clockOut: prev.clockOut ?? row.clockOut
+      clockOut: prev.clockOut ?? row.clockOut,
+      dayLabel: prev.dayLabel ?? row.dayLabel
     });
   }
   return map;
@@ -212,11 +215,12 @@ function buildDayLines(input: FolhaDePontoInput): DayLine[] {
     const expectedMinutes = isWeekend ? 0 : weekdayTarget;
     const worked = row ? workedMinutesForPunchRow(row) : 0;
     const hasMarks = Boolean(row && (row.clockIn || row.lunchOut || row.lunchIn || row.clockOut));
+    const dayLabel = row?.dayLabel?.trim();
 
     if (!hasMarks) {
       lines.push({
         dateLabel: `${formatDateBr(date)} ${weekday}`,
-        marks: "-",
+        marks: dayLabel || "-",
         expected: "-",
         worked: "-",
         abonos: "-",
@@ -224,7 +228,7 @@ function buildDayLines(input: FolhaDePontoInput): DayLine[] {
         expectedMinutes: 0,
         workedMinutes: 0,
         balanceMinutes: 0,
-        hasMarks: false,
+        hasMarks: Boolean(dayLabel),
         isWeekend
       });
       continue;

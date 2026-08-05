@@ -25,7 +25,9 @@ import type {
   TimeReportClosureEntry,
   TimeAdjustmentRequest,
   TimeEntryChangeLog,
-  TimeEntry
+  TimeEntry,
+  VacationPeriod,
+  VacationPeriodStatus
 } from "./workforce.types.js";
 
 type NoticeRow = {
@@ -87,6 +89,9 @@ type TimeEntryRow = {
   source: string;
   note: string | null;
   oncall_shift_id?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
+  archive_reason?: string | null;
   created_at: string;
 };
 
@@ -181,6 +186,33 @@ type OncallShiftRow = {
   employee_tags: string[] | null;
   created_by: string | null;
   updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type VacationPeriodRow = {
+  id: string;
+  tenant_id: string;
+  company_id: string;
+  user_id: string;
+  start_date: string;
+  end_date: string;
+  allow_time_punch: boolean;
+  status: VacationPeriodStatus;
+  note: string | null;
+  employee_full_name: string | null;
+  employee_email: string | null;
+  employee_cpf: string | null;
+  employee_phone: string | null;
+  department: string | null;
+  position_title: string | null;
+  contract_type: string | null;
+  employee_tags: string[] | null;
+  created_by: string | null;
+  updated_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by_user_id: string | null;
+  cancel_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -355,6 +387,9 @@ const mapTimeEntry = (row: TimeEntryRow): TimeEntry => ({
   source: row.source,
   note: row.note,
   oncallShiftId: row.oncall_shift_id ?? null,
+  archivedAt: row.archived_at ?? null,
+  archivedBy: row.archived_by ?? null,
+  archiveReason: row.archive_reason ?? null,
   createdAt: row.created_at
 });
 
@@ -448,6 +483,33 @@ const mapOncallShift = (row: OncallShiftRow): OncallShift => ({
   employeeTags: row.employee_tags ?? [],
   createdBy: row.created_by,
   updatedBy: row.updated_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
+const mapVacationPeriod = (row: VacationPeriodRow): VacationPeriod => ({
+  id: row.id,
+  tenantId: row.tenant_id,
+  companyId: row.company_id,
+  userId: row.user_id,
+  startDate: row.start_date,
+  endDate: row.end_date,
+  allowTimePunch: Boolean(row.allow_time_punch),
+  status: row.status,
+  note: row.note,
+  employeeFullName: row.employee_full_name,
+  employeeEmail: row.employee_email,
+  employeeCpf: row.employee_cpf,
+  employeePhone: row.employee_phone,
+  department: row.department,
+  positionTitle: row.position_title,
+  contractType: row.contract_type,
+  employeeTags: row.employee_tags ?? [],
+  createdBy: row.created_by,
+  updatedBy: row.updated_by,
+  cancelledAt: row.cancelled_at,
+  cancelledByUserId: row.cancelled_by_user_id,
+  cancelReason: row.cancel_reason,
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -979,7 +1041,7 @@ export class WorkforceRepository {
 
   async getLastTimeEntry(input: { tenantId: string; userId: string; companyId?: string | null }): Promise<TimeEntry | null> {
     const { data, error } = await withCompany(
-      this.db.from("time_entries").select("*").eq("tenant_id", input.tenantId).eq("user_id", input.userId),
+      this.db.from("time_entries").select("*").eq("tenant_id", input.tenantId).eq("user_id", input.userId).is("archived_at", null),
       input.companyId
     )
       .order("recorded_at", { ascending: false })
@@ -1003,6 +1065,7 @@ export class WorkforceRepository {
         .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("user_id", input.userId)
+        .is("archived_at", null)
         .lt("recorded_at", input.beforeRecordedAt),
       input.companyId
     )
@@ -1020,12 +1083,18 @@ export class WorkforceRepository {
     userId?: string;
     page: number;
     pageSize: number;
+    archivedMode?: "active" | "archived";
   }): Promise<PaginatedResult<TimeEntry>> {
     let query = withCompany(
       this.db.from("time_entries").select("*").eq("tenant_id", input.tenantId),
       input.companyId
     ).order("recorded_at", { ascending: false });
     if (input.userId) query = query.eq("user_id", input.userId);
+    if ((input.archivedMode ?? "active") === "archived") {
+      query = query.not("archived_at", "is", null);
+    } else {
+      query = query.is("archived_at", null);
+    }
     const offset = (input.page - 1) * input.pageSize;
     const { data, error } = await query.range(offset, offset + input.pageSize - 1);
     if (error) throw error;
@@ -1203,6 +1272,7 @@ export class WorkforceRepository {
         .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("user_id", input.userId)
+        .is("archived_at", null)
         .lt("recorded_at", input.recordedAt)
         .order("recorded_at", { ascending: false })
         .limit(1)
@@ -1212,6 +1282,7 @@ export class WorkforceRepository {
         .select("*")
         .eq("tenant_id", input.tenantId)
         .eq("user_id", input.userId)
+        .is("archived_at", null)
         .gt("recorded_at", input.recordedAt)
         .order("recorded_at", { ascending: true })
         .limit(1)
@@ -1784,6 +1855,233 @@ export class WorkforceRepository {
       .order("starts_at", { ascending: true });
     if (error) throw error;
     return ((data ?? []) as OncallShiftRow[]).map(mapOncallShift);
+  }
+
+  async createVacationPeriod(input: {
+    tenantId: string;
+    companyId: string;
+    targetUserId: string;
+    startDate: string;
+    endDate: string;
+    allowTimePunch?: boolean;
+    status?: VacationPeriodStatus;
+    note?: string | null;
+    employeeFullName?: string | null;
+    employeeEmail?: string | null;
+    employeeCpf?: string | null;
+    employeePhone?: string | null;
+    department?: string | null;
+    positionTitle?: string | null;
+    contractType?: string | null;
+    employeeTags?: string[];
+    createdBy?: string | null;
+    updatedBy?: string | null;
+  }): Promise<VacationPeriod> {
+    const { data, error } = await this.db
+      .from("vacation_periods")
+      .insert({
+        tenant_id: input.tenantId,
+        company_id: input.companyId,
+        user_id: input.targetUserId,
+        start_date: input.startDate,
+        end_date: input.endDate,
+        allow_time_punch: input.allowTimePunch ?? false,
+        status: input.status ?? "active",
+        note: input.note ?? null,
+        employee_full_name: input.employeeFullName ?? null,
+        employee_email: input.employeeEmail?.trim().toLowerCase() ?? null,
+        employee_cpf: input.employeeCpf?.replace(/\D/g, "") ?? null,
+        employee_phone: input.employeePhone?.replace(/\D/g, "") ?? null,
+        department: input.department ?? null,
+        position_title: input.positionTitle ?? null,
+        contract_type: input.contractType ?? null,
+        employee_tags: input.employeeTags ?? [],
+        created_by: input.createdBy ?? null,
+        updated_by: input.updatedBy ?? input.createdBy ?? null
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapVacationPeriod(data as VacationPeriodRow);
+  }
+
+  async listVacationPeriods(input: {
+    tenantId: string;
+    companyId?: string | null;
+    targetUserId?: string;
+    from?: string;
+    to?: string;
+    name?: string;
+    email?: string;
+    cpf?: string;
+    department?: string;
+    positionTitle?: string;
+    contractType?: string;
+    status?: VacationPeriodStatus;
+    tag?: string;
+    page: number;
+    pageSize: number;
+  }): Promise<PaginatedResult<VacationPeriod>> {
+    let query = withCompany(
+      this.db.from("vacation_periods").select("*").eq("tenant_id", input.tenantId),
+      input.companyId
+    )
+      .order("start_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (input.targetUserId) query = query.eq("user_id", input.targetUserId);
+    // Sobreposição com a janela [from, to]: start_date <= to AND end_date >= from
+    if (input.to) query = query.lte("start_date", input.to);
+    if (input.from) query = query.gte("end_date", input.from);
+    if (input.name) query = query.ilike("employee_full_name", `%${input.name}%`);
+    if (input.email) query = query.ilike("employee_email", `%${input.email.trim().toLowerCase()}%`);
+    if (input.cpf) {
+      const normalizedCpf = input.cpf.replace(/\D/g, "");
+      query = query.ilike("employee_cpf", `%${normalizedCpf}%`);
+    }
+    if (input.department) query = query.ilike("department", `%${input.department}%`);
+    if (input.positionTitle) query = query.ilike("position_title", `%${input.positionTitle}%`);
+    if (input.contractType) query = query.ilike("contract_type", `%${input.contractType}%`);
+    if (input.status) query = query.eq("status", input.status);
+    if (input.tag) query = query.contains("employee_tags", [input.tag]);
+
+    const offset = (input.page - 1) * input.pageSize;
+    const { data, error } = await query.range(offset, offset + input.pageSize - 1);
+    if (error) throw error;
+    return {
+      items: ((data ?? []) as VacationPeriodRow[]).map(mapVacationPeriod),
+      page: input.page,
+      pageSize: input.pageSize
+    };
+  }
+
+  async getVacationPeriodById(input: {
+    tenantId: string;
+    vacationId: string;
+    companyId?: string | null;
+  }): Promise<VacationPeriod | null> {
+    const { data, error } = await withCompany(
+      this.db.from("vacation_periods").select("*").eq("tenant_id", input.tenantId).eq("id", input.vacationId),
+      input.companyId
+    ).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return mapVacationPeriod(data as VacationPeriodRow);
+  }
+
+  async updateVacationPeriod(input: {
+    tenantId: string;
+    vacationId: string;
+    startDate?: string;
+    endDate?: string;
+    allowTimePunch?: boolean;
+    status?: VacationPeriodStatus;
+    note?: string | null;
+    cancelledAt?: string | null;
+    cancelledByUserId?: string | null;
+    cancelReason?: string | null;
+    updatedBy?: string | null;
+  }): Promise<VacationPeriod> {
+    const patch: Record<string, unknown> = {
+      updated_by: input.updatedBy ?? null
+    };
+    if (input.startDate !== undefined) patch.start_date = input.startDate;
+    if (input.endDate !== undefined) patch.end_date = input.endDate;
+    if (input.allowTimePunch !== undefined) patch.allow_time_punch = input.allowTimePunch;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.note !== undefined) patch.note = input.note;
+    if (input.cancelledAt !== undefined) patch.cancelled_at = input.cancelledAt;
+    if (input.cancelledByUserId !== undefined) patch.cancelled_by_user_id = input.cancelledByUserId;
+    if (input.cancelReason !== undefined) patch.cancel_reason = input.cancelReason;
+
+    const { data, error } = await this.db
+      .from("vacation_periods")
+      .update(patch)
+      .eq("tenant_id", input.tenantId)
+      .eq("id", input.vacationId)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapVacationPeriod(data as VacationPeriodRow);
+  }
+
+  async findOverlappingVacationPeriod(input: {
+    tenantId: string;
+    companyId: string;
+    userId: string;
+    startDate: string;
+    endDate: string;
+    excludeVacationId?: string;
+  }): Promise<VacationPeriod | null> {
+    let query = this.db
+      .from("vacation_periods")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .eq("company_id", input.companyId)
+      .eq("user_id", input.userId)
+      .eq("status", "active")
+      .lte("start_date", input.endDate)
+      .gte("end_date", input.startDate)
+      .order("start_date", { ascending: true })
+      .limit(1);
+
+    if (input.excludeVacationId) query = query.neq("id", input.excludeVacationId);
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return mapVacationPeriod(data as VacationPeriodRow);
+  }
+
+  async findActiveVacationCoveringDate(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    civilDate: string;
+  }): Promise<VacationPeriod | null> {
+    let query = withCompany(
+      this.db
+        .from("vacation_periods")
+        .select("*")
+        .eq("tenant_id", input.tenantId)
+        .eq("user_id", input.userId)
+        .eq("status", "active")
+        .lte("start_date", input.civilDate)
+        .gte("end_date", input.civilDate),
+      input.companyId
+    )
+      .order("start_date", { ascending: true })
+      .limit(1);
+
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return mapVacationPeriod(data as VacationPeriodRow);
+  }
+
+  async listActiveVacationsOverlappingRange(input: {
+    tenantId: string;
+    companyId?: string | null;
+    userId?: string;
+    from: string;
+    to: string;
+  }): Promise<VacationPeriod[]> {
+    let query = withCompany(
+      this.db
+        .from("vacation_periods")
+        .select("*")
+        .eq("tenant_id", input.tenantId)
+        .eq("status", "active")
+        .lte("start_date", input.to)
+        .gte("end_date", input.from),
+      input.companyId
+    ).order("start_date", { ascending: true });
+
+    if (input.userId) query = query.eq("user_id", input.userId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return ((data ?? []) as VacationPeriodRow[]).map(mapVacationPeriod);
   }
 
   async insertAuditLog(input: {
@@ -2519,16 +2817,79 @@ export class WorkforceRepository {
     companyId?: string | null;
     from: string;
     to: string;
+    /** Default: only active (non-archived) entries — used by reports and the active list. */
+    archivedMode?: "active" | "archived";
   }): Promise<TimeEntry[]> {
     const fromIso = `${input.from}T00:00:00.000Z`;
     const toIso = `${input.to}T23:59:59.999Z`;
-    const { data, error } = await withCompany(
+    let query = withCompany(
       this.db.from("time_entries").select("*").eq("tenant_id", input.tenantId).eq("user_id", input.userId),
       input.companyId
     )
       .gte("recorded_at", fromIso)
       .lte("recorded_at", toIso)
       .order("recorded_at", { ascending: true });
+    if ((input.archivedMode ?? "active") === "archived") {
+      query = query.not("archived_at", "is", null);
+    } else {
+      query = query.is("archived_at", null);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return ((data ?? []) as TimeEntryRow[]).map(mapTimeEntry);
+  }
+
+  async listTimeEntriesByIds(input: {
+    tenantId: string;
+    entryIds: string[];
+  }): Promise<TimeEntry[]> {
+    if (input.entryIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("time_entries")
+      .select("*")
+      .eq("tenant_id", input.tenantId)
+      .in("id", input.entryIds);
+    if (error) throw error;
+    return ((data ?? []) as TimeEntryRow[]).map(mapTimeEntry);
+  }
+
+  async archiveTimeEntries(input: {
+    tenantId: string;
+    entryIds: string[];
+    archivedBy: string;
+    reason: string;
+  }): Promise<TimeEntry[]> {
+    const now = new Date().toISOString();
+    const { data, error } = await this.db
+      .from("time_entries")
+      .update({
+        archived_at: now,
+        archived_by: input.archivedBy,
+        archive_reason: input.reason
+      })
+      .eq("tenant_id", input.tenantId)
+      .in("id", input.entryIds)
+      .is("archived_at", null)
+      .select("*");
+    if (error) throw error;
+    return ((data ?? []) as TimeEntryRow[]).map(mapTimeEntry);
+  }
+
+  async unarchiveTimeEntries(input: {
+    tenantId: string;
+    entryIds: string[];
+  }): Promise<TimeEntry[]> {
+    const { data, error } = await this.db
+      .from("time_entries")
+      .update({
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null
+      })
+      .eq("tenant_id", input.tenantId)
+      .in("id", input.entryIds)
+      .not("archived_at", "is", null)
+      .select("*");
     if (error) throw error;
     return ((data ?? []) as TimeEntryRow[]).map(mapTimeEntry);
   }

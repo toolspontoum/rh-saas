@@ -294,6 +294,10 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
           tenantSegment,
           {
             targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined,
+            from: typeof q4.from === "string" ? q4.from : undefined,
+            to: typeof q4.to === "string" ? q4.to : undefined,
+            archivedMode: typeof q4.archivedMode === "string" ? q4.archivedMode : undefined,
+            onlyArchived: typeof q4.onlyArchived === "string" ? q4.onlyArchived : undefined,
             page: typeof q4.page === "string" ? q4.page : undefined,
             pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
           },
@@ -358,6 +362,31 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       if (sub === "oncall-shifts") {
         const { runTenantOncallShiftsListGet } = await import("@vv/api/run-tenant-data-gets");
         const out = await runTenantOncallShiftsListGet(
+          headerAuthorization(req),
+          tenantSegment,
+          {
+            targetUserId: typeof q4.targetUserId === "string" ? q4.targetUserId : undefined,
+            from: typeof q4.from === "string" ? q4.from : undefined,
+            to: typeof q4.to === "string" ? q4.to : undefined,
+            name: typeof q4.name === "string" ? q4.name : undefined,
+            email: typeof q4.email === "string" ? q4.email : undefined,
+            cpf: typeof q4.cpf === "string" ? q4.cpf : undefined,
+            department: typeof q4.department === "string" ? q4.department : undefined,
+            positionTitle: typeof q4.positionTitle === "string" ? q4.positionTitle : undefined,
+            contractType: typeof q4.contractType === "string" ? q4.contractType : undefined,
+            status: typeof q4.status === "string" ? q4.status : undefined,
+            tag: typeof q4.tag === "string" ? q4.tag : undefined,
+            mineOnly: typeof q4.mineOnly === "string" ? q4.mineOnly : undefined,
+            page: typeof q4.page === "string" ? q4.page : undefined,
+            pageSize: typeof q4.pageSize === "string" ? q4.pageSize : undefined
+          },
+          xCompany4
+        );
+        return res.status(out.status).json(out.body);
+      }
+      if (sub === "vacations") {
+        const { runTenantVacationsListGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantVacationsListGet(
           headerAuthorization(req),
           tenantSegment,
           {
@@ -509,6 +538,11 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       if (a === "oncall-shifts") {
         const { runTenantOncallShiftByIdGet } = await import("@vv/api/run-tenant-data-gets");
         const out = await runTenantOncallShiftByIdGet(headerAuthorization(req), tenantSegment, b, xCompany5);
+        return res.status(out.status).json(out.body);
+      }
+      if (a === "vacations") {
+        const { runTenantVacationByIdGet } = await import("@vv/api/run-tenant-data-gets");
+        const out = await runTenantVacationByIdGet(headerAuthorization(req), tenantSegment, b, xCompany5);
         return res.status(out.status).json(out.body);
       }
     }

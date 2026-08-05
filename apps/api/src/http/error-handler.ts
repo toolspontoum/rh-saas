@@ -203,6 +203,35 @@ const knownErrors = new Map<string, ApiErrorShape>([
     "TIME_ENTRY_ALREADY_LINKED_TO_ONCALL",
     { status: 409, code: "TIME_ENTRY_ALREADY_LINKED_TO_ONCALL", message: "Este registro de ponto ja esta vinculado a outro sobreaviso." }
   ],
+  [
+    "VACATION_TARGET_NOT_EMPLOYEE",
+    {
+      status: 400,
+      code: "VACATION_TARGET_NOT_EMPLOYEE",
+      message: "O usuario selecionado nao possui perfil de colaborador para receber ferias."
+    }
+  ],
+  [
+    "VACATION_PERIOD_OVERLAP",
+    { status: 409, code: "VACATION_PERIOD_OVERLAP", message: "Ja existe um periodo de ferias ativo sobreposto para este colaborador." }
+  ],
+  [
+    "VACATION_INVALID_DATE_RANGE",
+    { status: 400, code: "VACATION_INVALID_DATE_RANGE", message: "A data fim deve ser igual ou posterior a data inicio." }
+  ],
+  ["VACATION_PERIOD_NOT_FOUND", { status: 404, code: "VACATION_PERIOD_NOT_FOUND", message: "Periodo de ferias nao encontrado." }],
+  [
+    "VACATION_PERIOD_CANCELLED",
+    { status: 400, code: "VACATION_PERIOD_CANCELLED", message: "Este periodo de ferias ja foi cancelado e nao permite novas acoes." }
+  ],
+  [
+    "VACATION_BLOCKS_TIME_ENTRY",
+    {
+      status: 400,
+      code: "VACATION_BLOCKS_TIME_ENTRY",
+      message: "Nao e permitido bater ponto durante o periodo de ferias deste colaborador."
+    }
+  ],
   ["CSV_EMPTY", { status: 400, code: "CSV_EMPTY", message: "CSV sem linhas de dados para importacao." }],
   ["CSV_INVALID_HEADER", { status: 400, code: "CSV_INVALID_HEADER", message: "Cabecalho do CSV invalido para importacao de contracheques." }],
   ["CSV_INVALID_ROW", { status: 400, code: "CSV_INVALID_ROW", message: "CSV contem uma linha invalida." }],
@@ -339,6 +368,42 @@ const knownErrors = new Map<string, ApiErrorShape>([
     }
   ],
   ["TIME_ENTRY_NOT_FOUND", { status: 404, code: "TIME_ENTRY_NOT_FOUND", message: "Registro de ponto nao encontrado." }],
+  [
+    "TIME_ENTRY_ARCHIVE_REASON_REQUIRED",
+    {
+      status: 400,
+      code: "TIME_ENTRY_ARCHIVE_REASON_REQUIRED",
+      message: "Informe o motivo do arquivamento (minimo 3 caracteres)."
+    }
+  ],
+  [
+    "TIME_ENTRY_ARCHIVE_EMPTY",
+    { status: 400, code: "TIME_ENTRY_ARCHIVE_EMPTY", message: "Selecione ao menos um registro de ponto para arquivar." }
+  ],
+  [
+    "TIME_ENTRY_ALREADY_ARCHIVED",
+    { status: 409, code: "TIME_ENTRY_ALREADY_ARCHIVED", message: "Um ou mais registros ja estao arquivados." }
+  ],
+  [
+    "TIME_ENTRY_NOT_ARCHIVED",
+    { status: 409, code: "TIME_ENTRY_NOT_ARCHIVED", message: "Um ou mais registros nao estao arquivados." }
+  ],
+  [
+    "TIME_ENTRY_ARCHIVE_MIXED_USERS",
+    {
+      status: 400,
+      code: "TIME_ENTRY_ARCHIVE_MIXED_USERS",
+      message: "Nao e permitido arquivar batidas de colaboradores diferentes na mesma operacao."
+    }
+  ],
+  [
+    "TIME_ENTRY_ARCHIVED",
+    {
+      status: 409,
+      code: "TIME_ENTRY_ARCHIVED",
+      message: "Registro arquivado. Desarquive antes de editar ou use a lista de arquivados."
+    }
+  ],
   ["TIME_ADJUSTMENT_NOT_FOUND", { status: 404, code: "TIME_ADJUSTMENT_NOT_FOUND", message: "Solicitacao de ajuste nao encontrada." }],
   ["TIME_REPORT_CLOSURE_NOT_FOUND", { status: 404, code: "TIME_REPORT_CLOSURE_NOT_FOUND", message: "Relatorio fechado nao encontrado." }],
   [

@@ -1964,6 +1964,10 @@ apiRouter.get("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, res
     const targetUserId = typeof req.query.targetUserId === "string" ? req.query.targetUserId : undefined;
     const from = typeof req.query.from === "string" ? req.query.from : undefined;
     const to = typeof req.query.to === "string" ? req.query.to : undefined;
+    const archivedMode =
+      req.query.archivedMode === "archived" || req.query.onlyArchived === "true" || req.query.onlyArchived === "1"
+        ? "archived"
+        : "active";
     const page = typeof req.query.page === "string" ? req.query.page : undefined;
     const pageSize = typeof req.query.pageSize === "string" ? req.query.pageSize : undefined;
     const result = await workforceHandlers.listTimeEntries({
@@ -1973,8 +1977,40 @@ apiRouter.get("/v1/tenants/:tenantId/time-entries", requireAuth, async (req, res
       targetUserId,
       from,
       to,
+      archivedMode,
       page,
       pageSize
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/time-entries/archive", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.archiveTimeEntries({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      entryIds: req.body?.entryIds,
+      reason: req.body?.reason
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/time-entries/unarchive", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.unarchiveTimeEntries({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      entryIds: req.body?.entryIds
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -2226,6 +2262,104 @@ apiRouter.get("/v1/tenants/:tenantId/oncall-shifts/:oncallShiftId/events", requi
       oncallShiftId: req.params.oncallShiftId,
       page: typeof req.query.page === "string" ? req.query.page : undefined,
       pageSize: typeof req.query.pageSize === "string" ? req.query.pageSize : undefined
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.post("/v1/tenants/:tenantId/vacations", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.createVacation({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      targetUserId: req.body?.targetUserId,
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+      note: req.body?.note ?? null,
+      allowTimePunch: req.body?.allowTimePunch
+    });
+    return res.status(201).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/vacations", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.listVacations({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      targetUserId: typeof req.query.targetUserId === "string" ? req.query.targetUserId : undefined,
+      from: typeof req.query.from === "string" ? req.query.from : undefined,
+      to: typeof req.query.to === "string" ? req.query.to : undefined,
+      name: typeof req.query.name === "string" ? req.query.name : undefined,
+      email: typeof req.query.email === "string" ? req.query.email : undefined,
+      cpf: typeof req.query.cpf === "string" ? req.query.cpf : undefined,
+      department: typeof req.query.department === "string" ? req.query.department : undefined,
+      positionTitle:
+        typeof req.query.positionTitle === "string" ? req.query.positionTitle : undefined,
+      contractType: typeof req.query.contractType === "string" ? req.query.contractType : undefined,
+      status: typeof req.query.status === "string" ? req.query.status : undefined,
+      tag: typeof req.query.tag === "string" ? req.query.tag : undefined,
+      mineOnly: typeof req.query.mineOnly === "string" ? req.query.mineOnly : undefined,
+      page: typeof req.query.page === "string" ? req.query.page : undefined,
+      pageSize: typeof req.query.pageSize === "string" ? req.query.pageSize : undefined
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.get("/v1/tenants/:tenantId/vacations/:vacationId", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.getVacationById({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      vacationId: req.params.vacationId
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.patch("/v1/tenants/:tenantId/vacations/:vacationId", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.updateVacation({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      vacationId: req.params.vacationId,
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+      note: req.body?.note,
+      allowTimePunch: req.body?.allowTimePunch
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
+apiRouter.delete("/v1/tenants/:tenantId/vacations/:vacationId", requireAuth, async (req, res) => {
+  try {
+    const result = await workforceHandlers.deleteVacation({
+      tenantId: req.params.tenantId,
+      companyId: getTenantCompanyId(req),
+      userId: (req as AuthenticatedRequest).auth.userId,
+      vacationId: req.params.vacationId,
+      reason: req.body?.reason ?? null
     });
     return res.status(200).json(result);
   } catch (error) {
