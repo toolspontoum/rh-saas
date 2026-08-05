@@ -91,6 +91,57 @@ export async function runTimeEntryPatch(
   }
 }
 
+/** POST /v1/tenants/:id/time-entries/archive */
+export async function runTimeEntriesArchivePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.archiveTimeEntries({
+      tenantId,
+      companyId: scope.companyId,
+      userId: s.userId,
+      entryIds: body.entryIds,
+      reason: body.reason
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:id/time-entries/unarchive */
+export async function runTimeEntriesUnarchivePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: Record<string, unknown>,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.unarchiveTimeEntries({
+      tenantId,
+      companyId: scope.companyId,
+      userId: s.userId,
+      entryIds: body.entryIds
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** GET /v1/tenants/:id/time-entries/:entryId/change-logs */
 export async function runTimeEntryChangeLogsGet(
   authorizationHeader: string | null | undefined,

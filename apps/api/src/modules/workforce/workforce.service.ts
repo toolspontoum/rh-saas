@@ -6,7 +6,9 @@ import { normalizeSkillList } from "../../lib/skill-tags.js";
 import {
   buildFolhaDePontoPdf,
   buildScheduleDescription,
-  groupEntriesToFolhaRows
+  civilDateInSaoPaulo,
+  groupEntriesToFolhaRows,
+  type FolhaPunchRow
 } from "./folha-de-ponto-pdf.js";
 import { WorkforceRepository } from "./workforce.repository.js";
 import type {
@@ -31,8 +33,37 @@ import type {
   TimeEntryChangeLog,
   TimeReportClosure,
   TimeReportSummary,
-  TimeEntry
+  TimeEntry,
+  VacationPeriod,
+  VacationPeriodStatus
 } from "./workforce.types.js";
+
+const VACATION_AUTO_ARCHIVE_REASON =
+  "Arquivado automaticamente na criação retroativa do registro de férias";
+
+function enumerateInclusiveDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(`${from}T12:00:00.000Z`);
+  const end = new Date(`${to}T12:00:00.000Z`);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime()) || cursor > end) return dates;
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function clampDateRangeOverlap(
+  startDate: string,
+  endDate: string,
+  from: string,
+  to: string
+): { from: string; to: string } | null {
+  const overlapFrom = startDate > from ? startDate : from;
+  const overlapTo = endDate < to ? endDate : to;
+  if (overlapFrom > overlapTo) return null;
+  return { from: overlapFrom, to: overlapTo };
+}
 
 export class WorkforceService {
   constructor(
@@ -367,6 +398,18 @@ export class WorkforceService {
       userId: subjectUserId,
       companyId: input.companyId ?? null
     });
+
+    const civilDate = civilDateInSaoPaulo(input.recordedAt);
+    const blockingVacation = await this.repository.findActiveVacationCoveringDate({
+      tenantId: input.tenantId,
+      userId: subjectUserId,
+      companyId,
+      civilDate
+    });
+    if (blockingVacation && !blockingVacation.allowTimePunch) {
+      throw new Error("VACATION_BLOCKS_TIME_ENTRY");
+    }
+
     const lastEntry = await this.repository.getLastTimeEntryBefore({
       tenantId: input.tenantId,
       userId: subjectUserId,
@@ -393,10 +436,12 @@ export class WorkforceService {
     targetUserId?: string;
     from?: string;
     to?: string;
+    archivedMode?: "active" | "archived";
     page: number;
     pageSize: number;
   }): Promise<PaginatedResult<TimeEntry>> {
-    if (input.targetUserId && input.targetUserId !== input.userId) {
+    const archivedMode = input.archivedMode ?? "active";
+    if (archivedMode === "archived" || (input.targetUserId && input.targetUserId !== input.userId)) {
       await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
         "owner",
         "admin",
@@ -418,7 +463,8 @@ export class WorkforceService {
         companyId: listCompanyId,
         userId: targetUserId,
         from: input.from,
-        to: input.to
+        to: input.to,
+        archivedMode
       });
       return { items, page: 1, pageSize: items.length };
     }
@@ -427,8 +473,109 @@ export class WorkforceService {
       companyId: listCompanyId,
       userId: targetUserId,
       page: input.page,
-      pageSize: input.pageSize
+      pageSize: input.pageSize,
+      archivedMode
     });
+  }
+
+  private async assertCanArchiveTimeEntries(userId: string, tenantId: string): Promise<void> {
+    await this.authTenantService.assertUserHasAnyRole(userId, tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "preposto"
+    ]);
+  }
+
+  async archiveTimeEntries(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    entryIds: string[];
+    reason: string;
+  }): Promise<{ archivedCount: number; items: TimeEntry[] }> {
+    await this.assertCanArchiveTimeEntries(input.userId, input.tenantId);
+    const reason = input.reason.trim();
+    if (reason.length < 3) throw new Error("TIME_ENTRY_ARCHIVE_REASON_REQUIRED");
+
+    const uniqueIds = Array.from(new Set(input.entryIds));
+    if (uniqueIds.length === 0) throw new Error("TIME_ENTRY_ARCHIVE_EMPTY");
+
+    const existing = await this.repository.listTimeEntriesByIds({
+      tenantId: input.tenantId,
+      entryIds: uniqueIds
+    });
+    if (existing.length === 0) throw new Error("TIME_ENTRY_NOT_FOUND");
+    if (existing.some((e) => e.archivedAt)) throw new Error("TIME_ENTRY_ALREADY_ARCHIVED");
+    if (existing.length !== uniqueIds.length) throw new Error("TIME_ENTRY_NOT_FOUND");
+
+    const userIds = new Set(existing.map((e) => e.userId));
+    if (userIds.size !== 1) throw new Error("TIME_ENTRY_ARCHIVE_MIXED_USERS");
+
+    const archived = await this.repository.archiveTimeEntries({
+      tenantId: input.tenantId,
+      entryIds: uniqueIds,
+      archivedBy: input.userId,
+      reason
+    });
+
+    const primaryId = uniqueIds[0]!;
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      actorUserId: input.userId,
+      action: "workforce.time_entry.archived",
+      resourceType: "time_entry",
+      resourceId: primaryId,
+      metadata: {
+        entryIds: uniqueIds,
+        reason,
+        archivedCount: archived.length,
+        targetUserId: existing[0]?.userId ?? null
+      }
+    });
+
+    return { archivedCount: archived.length, items: archived };
+  }
+
+  async unarchiveTimeEntries(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    entryIds: string[];
+  }): Promise<{ unarchivedCount: number; items: TimeEntry[] }> {
+    await this.assertCanArchiveTimeEntries(input.userId, input.tenantId);
+
+    const uniqueIds = Array.from(new Set(input.entryIds));
+    if (uniqueIds.length === 0) throw new Error("TIME_ENTRY_ARCHIVE_EMPTY");
+
+    const existing = await this.repository.listTimeEntriesByIds({
+      tenantId: input.tenantId,
+      entryIds: uniqueIds
+    });
+    if (existing.length === 0) throw new Error("TIME_ENTRY_NOT_FOUND");
+    if (existing.some((e) => !e.archivedAt)) throw new Error("TIME_ENTRY_NOT_ARCHIVED");
+    if (existing.length !== uniqueIds.length) throw new Error("TIME_ENTRY_NOT_FOUND");
+
+    const unarchived = await this.repository.unarchiveTimeEntries({
+      tenantId: input.tenantId,
+      entryIds: uniqueIds
+    });
+
+    const primaryId = uniqueIds[0]!;
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      actorUserId: input.userId,
+      action: "workforce.time_entry.unarchived",
+      resourceType: "time_entry",
+      resourceId: primaryId,
+      metadata: {
+        entryIds: uniqueIds,
+        unarchivedCount: unarchived.length,
+        targetUserId: existing[0]?.userId ?? null
+      }
+    });
+
+    return { unarchivedCount: unarchived.length, items: unarchived };
   }
 
   async createTimeAdjustmentRequest(input: {
@@ -933,6 +1080,7 @@ export class WorkforceService {
       entryId: input.entryId
     });
     if (!existing) throw new Error("TIME_ENTRY_NOT_FOUND");
+    if (existing.archivedAt) throw new Error("TIME_ENTRY_ARCHIVED");
 
     const updated = await this.repository.updateTimeEntryRecordedAt({
       tenantId: input.tenantId,
@@ -1624,6 +1772,407 @@ export class WorkforceService {
     });
   }
 
+  private async assertVacationAdminRole(userId: string, tenantId: string): Promise<void> {
+    await this.authTenantService.assertUserHasAnyRole(userId, tenantId, [
+      "owner",
+      "admin",
+      "manager",
+      "analyst",
+      "preposto"
+    ]);
+  }
+
+  private async assertVacationReadAccess(input: {
+    tenantId: string;
+    userId: string;
+    targetUserId: string;
+  }): Promise<void> {
+    if (input.userId === input.targetUserId) {
+      await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+      return;
+    }
+    await this.assertVacationAdminRole(input.userId, input.tenantId);
+  }
+
+  private async archiveEntriesInDateRangeForVacation(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId: string;
+    targetUserId: string;
+    startDate: string;
+    endDate: string;
+  }): Promise<number> {
+    const entries = await this.repository.listTimeEntriesInRange({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId: input.companyId,
+      from: input.startDate,
+      to: input.endDate,
+      archivedMode: "active"
+    });
+    if (entries.length === 0) return 0;
+
+    const ids = entries.map((e) => e.id);
+    let archivedCount = 0;
+    for (let i = 0; i < ids.length; i += 20) {
+      const batch = ids.slice(i, i + 20);
+      const archived = await this.repository.archiveTimeEntries({
+        tenantId: input.tenantId,
+        entryIds: batch,
+        archivedBy: input.actorUserId,
+        reason: VACATION_AUTO_ARCHIVE_REASON
+      });
+      archivedCount += archived.length;
+    }
+
+    if (archivedCount > 0) {
+      await this.repository.insertAuditLog({
+        tenantId: input.tenantId,
+        companyId: input.companyId,
+        actorUserId: input.actorUserId,
+        action: "workforce.time_entry.archived",
+        resourceType: "time_entry",
+        resourceId: ids[0]!,
+        metadata: {
+          entryIds: ids,
+          reason: VACATION_AUTO_ARCHIVE_REASON,
+          archivedCount,
+          targetUserId: input.targetUserId,
+          source: "vacation_retroactive"
+        }
+      });
+    }
+    return archivedCount;
+  }
+
+  private mergeVacationDayLabels(
+    rows: FolhaPunchRow[],
+    vacations: VacationPeriod[],
+    from: string,
+    to: string
+  ): FolhaPunchRow[] {
+    const byDate = new Map<string, FolhaPunchRow>();
+    for (const row of rows) {
+      const prev = byDate.get(row.baseDate);
+      if (!prev) {
+        byDate.set(row.baseDate, { ...row });
+        continue;
+      }
+      byDate.set(row.baseDate, {
+        baseDate: row.baseDate,
+        clockIn: prev.clockIn ?? row.clockIn,
+        lunchOut: prev.lunchOut ?? row.lunchOut,
+        lunchIn: prev.lunchIn ?? row.lunchIn,
+        clockOut: prev.clockOut ?? row.clockOut,
+        dayLabel: prev.dayLabel ?? row.dayLabel
+      });
+    }
+
+    for (const vacation of vacations) {
+      const overlap = clampDateRangeOverlap(vacation.startDate, vacation.endDate, from, to);
+      if (!overlap) continue;
+      for (const date of enumerateInclusiveDates(overlap.from, overlap.to)) {
+        const existing = byDate.get(date);
+        const hasMarks = Boolean(
+          existing && (existing.clockIn || existing.lunchOut || existing.lunchIn || existing.clockOut)
+        );
+        if (hasMarks) continue;
+        byDate.set(date, { baseDate: date, dayLabel: "Férias" });
+      }
+    }
+
+    return Array.from(byDate.values()).sort((a, b) => a.baseDate.localeCompare(b.baseDate));
+  }
+
+  async createVacation(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    targetUserId: string;
+    startDate: string;
+    endDate: string;
+    note?: string | null;
+    allowTimePunch?: boolean;
+  }): Promise<VacationPeriod> {
+    await this.assertVacationAdminRole(input.userId, input.tenantId);
+    const companyId = this.requireAdminCompany(input.companyId);
+
+    if (input.endDate < input.startDate) throw new Error("VACATION_INVALID_DATE_RANGE");
+
+    const targetContext = await this.authTenantService.getTenantContext(input.targetUserId, input.tenantId);
+    if (!targetContext.roles.includes("employee")) {
+      throw new Error("VACATION_TARGET_NOT_EMPLOYEE");
+    }
+
+    const overlapping = await this.repository.findOverlappingVacationPeriod({
+      tenantId: input.tenantId,
+      companyId,
+      userId: input.targetUserId,
+      startDate: input.startDate,
+      endDate: input.endDate
+    });
+    if (overlapping) throw new Error("VACATION_PERIOD_OVERLAP");
+
+    await this.archiveEntriesInDateRangeForVacation({
+      tenantId: input.tenantId,
+      actorUserId: input.userId,
+      companyId,
+      targetUserId: input.targetUserId,
+      startDate: input.startDate,
+      endDate: input.endDate
+    });
+
+    const profile = await this.repository.getEmployeeProfile({
+      tenantId: input.tenantId,
+      userId: input.targetUserId
+    });
+
+    const created = await this.repository.createVacationPeriod({
+      tenantId: input.tenantId,
+      companyId,
+      targetUserId: input.targetUserId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      allowTimePunch: input.allowTimePunch ?? false,
+      status: "active",
+      note: input.note ?? null,
+      employeeFullName: profile?.fullName ?? null,
+      employeeEmail: profile?.authEmail ?? profile?.personalEmail ?? null,
+      employeeCpf: profile?.cpf ?? null,
+      employeePhone: profile?.phone ?? null,
+      department: profile?.department ?? null,
+      positionTitle: profile?.positionTitle ?? null,
+      contractType: profile?.contractType ?? null,
+      employeeTags: profile?.employeeTags ?? [],
+      createdBy: input.userId,
+      updatedBy: input.userId
+    });
+
+    await this.repository.createNotice({
+      tenantId: input.tenantId,
+      companyId: created.companyId,
+      createdBy: input.userId,
+      title: "Férias cadastradas",
+      message: `Foi cadastrado um período de férias de ${created.startDate} a ${created.endDate}.`,
+      target: "employee",
+      recipientUserIds: [created.userId]
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: created.companyId,
+      actorUserId: input.userId,
+      action: "workforce.vacation.created",
+      resourceType: "vacation_period",
+      resourceId: created.id,
+      metadata: {
+        targetUserId: created.userId,
+        startDate: created.startDate,
+        endDate: created.endDate,
+        allowTimePunch: created.allowTimePunch
+      }
+    });
+
+    return created;
+  }
+
+  async listVacations(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    targetUserId?: string;
+    from?: string;
+    to?: string;
+    name?: string;
+    email?: string;
+    cpf?: string;
+    department?: string;
+    positionTitle?: string;
+    contractType?: string;
+    status?: VacationPeriodStatus;
+    tag?: string;
+    mineOnly: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<PaginatedResult<VacationPeriod>> {
+    let targetUserId: string | undefined = input.targetUserId;
+    if (input.mineOnly) {
+      await this.authTenantService.getTenantContext(input.userId, input.tenantId);
+      targetUserId = input.userId;
+    } else {
+      await this.assertVacationAdminRole(input.userId, input.tenantId);
+    }
+
+    const listCompanyId = input.mineOnly
+      ? await this.repository.getTenantUserCompanyId(input.tenantId, input.userId)
+      : await this.resolveListCompanyId(input);
+
+    return this.repository.listVacationPeriods({
+      tenantId: input.tenantId,
+      companyId: listCompanyId,
+      targetUserId,
+      from: input.from,
+      to: input.to,
+      name: input.name,
+      email: input.email,
+      cpf: input.cpf,
+      department: input.department,
+      positionTitle: input.positionTitle,
+      contractType: input.contractType,
+      status: input.status,
+      tag: input.tag,
+      page: input.page,
+      pageSize: input.pageSize
+    });
+  }
+
+  async getVacationById(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    vacationId: string;
+  }): Promise<VacationPeriod> {
+    const vacation = await this.repository.getVacationPeriodById({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      vacationId: input.vacationId
+    });
+    if (!vacation) throw new Error("VACATION_PERIOD_NOT_FOUND");
+
+    await this.assertVacationReadAccess({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      targetUserId: vacation.userId
+    });
+
+    return vacation;
+  }
+
+  async updateVacation(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    vacationId: string;
+    startDate?: string;
+    endDate?: string;
+    note?: string | null;
+    allowTimePunch?: boolean;
+  }): Promise<VacationPeriod> {
+    await this.assertVacationAdminRole(input.userId, input.tenantId);
+
+    const existing = await this.repository.getVacationPeriodById({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      vacationId: input.vacationId
+    });
+    if (!existing) throw new Error("VACATION_PERIOD_NOT_FOUND");
+    if (existing.status === "cancelled") throw new Error("VACATION_PERIOD_CANCELLED");
+
+    const nextStart = input.startDate ?? existing.startDate;
+    const nextEnd = input.endDate ?? existing.endDate;
+    if (nextEnd < nextStart) throw new Error("VACATION_INVALID_DATE_RANGE");
+
+    const overlapping = await this.repository.findOverlappingVacationPeriod({
+      tenantId: input.tenantId,
+      companyId: existing.companyId,
+      userId: existing.userId,
+      startDate: nextStart,
+      endDate: nextEnd,
+      excludeVacationId: existing.id
+    });
+    if (overlapping) throw new Error("VACATION_PERIOD_OVERLAP");
+
+    // Arquiva batidas ativas no intervalo atualizado (idempotente se já estiverem arquivadas).
+    await this.archiveEntriesInDateRangeForVacation({
+      tenantId: input.tenantId,
+      actorUserId: input.userId,
+      companyId: existing.companyId,
+      targetUserId: existing.userId,
+      startDate: nextStart,
+      endDate: nextEnd
+    });
+
+    const updated = await this.repository.updateVacationPeriod({
+      tenantId: input.tenantId,
+      vacationId: existing.id,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      note: input.note,
+      allowTimePunch: input.allowTimePunch,
+      updatedBy: input.userId
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: updated.companyId,
+      actorUserId: input.userId,
+      action: "workforce.vacation.updated",
+      resourceType: "vacation_period",
+      resourceId: updated.id,
+      metadata: {
+        startDate: updated.startDate,
+        endDate: updated.endDate,
+        allowTimePunch: updated.allowTimePunch
+      }
+    });
+
+    return updated;
+  }
+
+  async deleteVacation(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    vacationId: string;
+    reason?: string | null;
+  }): Promise<{ ok: true }> {
+    await this.assertVacationAdminRole(input.userId, input.tenantId);
+
+    const existing = await this.repository.getVacationPeriodById({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      vacationId: input.vacationId
+    });
+    if (!existing) throw new Error("VACATION_PERIOD_NOT_FOUND");
+    if (existing.status === "cancelled") throw new Error("VACATION_PERIOD_CANCELLED");
+
+    await this.repository.updateVacationPeriod({
+      tenantId: input.tenantId,
+      vacationId: existing.id,
+      status: "cancelled",
+      cancelledAt: new Date().toISOString(),
+      cancelledByUserId: input.userId,
+      cancelReason: input.reason ?? null,
+      updatedBy: input.userId
+    });
+
+    await this.repository.createNotice({
+      tenantId: input.tenantId,
+      companyId: existing.companyId,
+      createdBy: input.userId,
+      title: "Férias canceladas",
+      message: `Seu período de férias (${existing.startDate} a ${existing.endDate}) foi cancelado.`,
+      target: "employee",
+      recipientUserIds: [existing.userId]
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId: existing.companyId,
+      actorUserId: input.userId,
+      action: "workforce.vacation.cancelled",
+      resourceType: "vacation_period",
+      resourceId: existing.id,
+      metadata: {
+        reason: input.reason ?? null,
+        startDate: existing.startDate,
+        endDate: existing.endDate
+      }
+    });
+
+    return { ok: true };
+  }
+
   async getTenantWorkRule(input: { tenantId: string; userId: string; companyId?: string | null }): Promise<TenantWorkRule> {
     await this.authTenantService.getTenantContext(input.userId, input.tenantId);
     const companyId = await this.resolveWorkRuleCompanyId(input);
@@ -1920,7 +2469,19 @@ export class WorkforceService {
       workRule?.dailyWorkMinutes ??
       inferDailyTargetMinutes(closure.summary.expectedMinutes, closure.from, closure.to);
     const lunchBreakMinutes = shiftAssignment?.template.lunchBreakMinutes ?? 60;
-    const rows = groupEntriesToFolhaRows(closure.entries);
+    const vacations = await this.repository.listActiveVacationsOverlappingRange({
+      tenantId: input.tenantId,
+      companyId,
+      userId: closure.userId,
+      from: closure.from,
+      to: closure.to
+    });
+    const rows = this.mergeVacationDayLabels(
+      groupEntriesToFolhaRows(closure.entries),
+      vacations,
+      closure.from,
+      closure.to
+    );
     const pdf = buildFolhaDePontoPdf({
       from: closure.from,
       to: closure.to,
@@ -2005,7 +2566,14 @@ export class WorkforceService {
     const dailyTargetMinutes =
       shiftAssignment?.template.dailyWorkMinutes ?? workRule.dailyWorkMinutes;
     const lunchBreakMinutes = shiftAssignment?.template.lunchBreakMinutes ?? 60;
-    const rows = groupEntriesToFolhaRows(entries);
+    const vacations = await this.repository.listActiveVacationsOverlappingRange({
+      tenantId: input.tenantId,
+      companyId: scopeCompanyId,
+      userId: input.targetUserId,
+      from,
+      to
+    });
+    const rows = this.mergeVacationDayLabels(groupEntriesToFolhaRows(entries), vacations, from, to);
     const pdf = buildFolhaDePontoPdf({
       from,
       to,

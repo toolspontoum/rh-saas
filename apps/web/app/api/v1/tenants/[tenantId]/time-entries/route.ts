@@ -15,6 +15,10 @@ export async function GET(
     tenantId,
     {
       targetUserId: url.searchParams.get("targetUserId") ?? undefined,
+      from: url.searchParams.get("from") ?? undefined,
+      to: url.searchParams.get("to") ?? undefined,
+      archivedMode: url.searchParams.get("archivedMode") ?? undefined,
+      onlyArchived: url.searchParams.get("onlyArchived") ?? undefined,
       page: url.searchParams.get("page") ?? undefined,
       pageSize: url.searchParams.get("pageSize") ?? undefined
     },

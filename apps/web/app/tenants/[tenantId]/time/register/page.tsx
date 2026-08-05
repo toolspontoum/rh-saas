@@ -2,7 +2,7 @@
 
 import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CalendarPlus, Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarPlus, Camera, CheckCircle2, Clock3, Info, Lock, Pencil, XCircle } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../../components/breadcrumbs";
 import { BrDateInput } from "../../../../../components/br-date-input";
@@ -99,6 +99,15 @@ type PdfPayload = {
 
 type PunchAction = TimeEntry["entryType"];
 
+type VacationPeriod = {
+  id: string;
+  userId: string;
+  startDate: string;
+  endDate: string;
+  allowTimePunch: boolean;
+  status: "active" | "cancelled";
+};
+
 type WorkRow = {
   key: string;
   userId: string;
@@ -113,6 +122,9 @@ type WorkRow = {
   isPendingRetroactive?: boolean;
   /** Datas das batidas pretendidas no pedido pendente, indexadas por entryType. */
   pendingRetroEntries?: Partial<Record<PunchAction, string>>;
+  /** Linha virtual de férias (dia sem batidas no período ativo). */
+  isVacation?: boolean;
+  vacationId?: string;
 };
 
 const actionLabel: Record<PunchAction, string> = {
@@ -292,6 +304,47 @@ function buildPendingRetroactiveRow(adj: TimeAdjustment): WorkRow {
   };
 }
 
+function enumerateInclusiveDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime()) || cursor > end) return dates;
+  while (cursor <= end) {
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, "0");
+    const d = String(cursor.getDate()).padStart(2, "0");
+    dates.push(`${y}-${m}-${d}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function buildVacationRows(
+  vacations: VacationPeriod[],
+  occupiedDates: Set<string>,
+  periodFrom: string,
+  periodTo: string
+): WorkRow[] {
+  const rows: WorkRow[] = [];
+  for (const vacation of vacations) {
+    if (vacation.status !== "active") continue;
+    const from = vacation.startDate > periodFrom ? vacation.startDate : periodFrom;
+    const to = vacation.endDate < periodTo ? vacation.endDate : periodTo;
+    if (from > to) continue;
+    for (const date of enumerateInclusiveDates(from, to)) {
+      if (occupiedDates.has(date)) continue;
+      rows.push({
+        key: `vacation-${vacation.id}-${date}`,
+        userId: vacation.userId,
+        baseDate: date,
+        isVacation: true,
+        vacationId: vacation.id
+      });
+    }
+  }
+  return rows;
+}
+
 /** Janela elegível: mês anterior completo + dias já passados do mês atual (exclui hoje). */
 function buildRetroactiveEligibleDates(blockedDates: Set<string>): string[] {
   const today = new Date();
@@ -336,8 +389,14 @@ export default function TimeRegisterPage() {
   const [collaboratorsPage, setCollaboratorsPage] = useState(1);
   const [recordsPeriodFrom, setRecordsPeriodFrom] = useState(defaultPeriodFrom);
   const [recordsPeriodTo, setRecordsPeriodTo] = useState(defaultPeriodTo);
+  const [showArchivedRecords, setShowArchivedRecords] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<WorkRow | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [unarchiveBusyKey, setUnarchiveBusyKey] = useState<string | null>(null);
   const [targetProfile, setTargetProfile] = useState<EmployeeProfile | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [vacations, setVacations] = useState<VacationPeriod[]>([]);
   const [adjustments, setAdjustments] = useState<TimeAdjustment[]>([]);
   const [workRule, setWorkRule] = useState<WorkRule | null>(null);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
@@ -396,6 +455,13 @@ export default function TimeRegisterPage() {
   const canManage = roles.some((role) =>
     ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
   );
+  const canArchive = roles.some((role) => ["owner", "admin", "manager", "preposto"].includes(role));
+
+  function workRowEntryIds(row: WorkRow): string[] {
+    return [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(
+      (v): v is string => Boolean(v)
+    );
+  }
 
   const rows = useMemo(() => {
     const realRows = groupRows(entries);
@@ -409,21 +475,26 @@ export default function TimeRegisterPage() {
       }
     }
     for (const row of realRows) {
-      const ids = [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(
-        (v): v is string => Boolean(v)
-      );
+      const ids = workRowEntryIds(row);
       const linked = ids.map((id) => retroApprovedById.get(id)).find((v) => Boolean(v));
       if (linked) row.retroactiveRequest = linked;
     }
-    // Adiciona linhas virtuais para pedidos retroativos PENDENTES (ainda sem
-    // batidas reais). Pedidos rejeitados não aparecem na lista.
-    const pendingVirtualRows: WorkRow[] = adjustments
-      .filter((adj) => adj.isRetroactive && adj.status === "pending")
-      .map(buildPendingRetroactiveRow);
-    const merged = [...realRows, ...pendingVirtualRows];
+    // Pedidos retroativos pendentes só na lista ativa (não fazem sentido em arquivados).
+    const pendingVirtualRows: WorkRow[] =
+      showArchivedRecords
+        ? []
+        : adjustments
+            .filter((adj) => adj.isRetroactive && adj.status === "pending")
+            .map(buildPendingRetroactiveRow);
+    const occupiedDates = new Set(realRows.map((row) => row.baseDate));
+    for (const row of pendingVirtualRows) occupiedDates.add(row.baseDate);
+    const vacationRows = showArchivedRecords
+      ? []
+      : buildVacationRows(vacations, occupiedDates, recordsPeriodFrom, recordsPeriodTo);
+    const merged = [...realRows, ...pendingVirtualRows, ...vacationRows];
     merged.sort((a, b) => (a.baseDate < b.baseDate ? 1 : a.baseDate > b.baseDate ? -1 : 0));
     return merged;
-  }, [entries, adjustments]);
+  }, [entries, adjustments, vacations, showArchivedRecords, recordsPeriodFrom, recordsPeriodTo]);
 
   // Estado do ciclo de trabalho aberto: usamos a última batida real (independente do dia
   // civil) para tolerar jornada nocturna e turnos que cruzam a meia-noite.
@@ -503,7 +574,7 @@ export default function TimeRegisterPage() {
           ? row.pendingRetroEntries?.clock_out ?? ""
           : row.clockOut?.recordedAt ?? "",
       balance: (row: WorkRow) => {
-        if (row.isPendingRetroactive) return null;
+        if (row.isPendingRetroactive || row.isVacation) return null;
         const worked = rowWorkedMinutes(row);
         const target = workRule?.dailyWorkMinutes ?? 480;
         return worked - target;
@@ -756,9 +827,20 @@ export default function TimeRegisterPage() {
       : "mineOnly=true";
     const from = period?.from ?? recordsPeriodFrom;
     const to = period?.to ?? recordsPeriodTo;
-    const qPeriod = `&from=${from}&to=${to}`;
+    const archivedMode = showArchivedRecords ? "archived" : "active";
+    const qPeriod = `&from=${from}&to=${to}&archivedMode=${archivedMode}`;
 
-    const [entriesRes, adjustmentsRes, ruleRes, profileRes, summaryRes] = await Promise.all([
+    const vacationQuery = new URLSearchParams({
+      page: "1",
+      pageSize: "100",
+      status: "active",
+      from,
+      to
+    });
+    if (targetUserId) vacationQuery.set("targetUserId", targetUserId);
+    else if (!manageMode) vacationQuery.set("mineOnly", "true");
+
+    const [entriesRes, adjustmentsRes, ruleRes, profileRes, summaryRes, vacationsRes] = await Promise.all([
       apiFetch<Paginated<TimeEntry>>(
         `/v1/tenants/${tenantId}/time-entries?page=1&pageSize=500${qTarget}${qPeriod}`
       ),
@@ -771,16 +853,25 @@ export default function TimeRegisterPage() {
       apiFetch<EmployeeProfile | null>(
         `/v1/tenants/${tenantId}/employee-profile${targetUserId ? `?targetUserId=${targetUserId}` : ""}`
       ),
-      apiFetch<ReportSummary>(
-        `/v1/tenants/${tenantId}/time-reports/summary?from=${from}&to=${to}${targetUserId ? `&targetUserId=${targetUserId}` : ""}`
-      ).catch(() => null as unknown as ReportSummary)
+      // Relatório do mês ignora arquivados — só faz sentido na visão de ativos.
+      showArchivedRecords
+        ? Promise.resolve(null as unknown as ReportSummary)
+        : apiFetch<ReportSummary>(
+            `/v1/tenants/${tenantId}/time-reports/summary?from=${from}&to=${to}${targetUserId ? `&targetUserId=${targetUserId}` : ""}`
+          ).catch(() => null as unknown as ReportSummary),
+      showArchivedRecords
+        ? Promise.resolve({ items: [] as VacationPeriod[] })
+        : apiFetch<Paginated<VacationPeriod>>(
+            `/v1/tenants/${tenantId}/vacations?${vacationQuery.toString()}`
+          ).catch(() => ({ items: [] as VacationPeriod[], page: 1, pageSize: 100 }))
     ]);
 
     setEntries(entriesRes.items ?? []);
     setAdjustments(adjustmentsRes.items ?? []);
     setWorkRule(ruleRes);
     setTargetProfile(profileRes);
-    setSummary(summaryRes ?? null);
+    setVacations(vacationsRes.items ?? []);
+    if (!showArchivedRecords) setSummary(summaryRes ?? null);
   }
 
   useEffect(() => {
@@ -905,7 +996,7 @@ export default function TimeRegisterPage() {
       setError(err.message)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roles, canManage, canRegister, recordsPeriodFrom, recordsPeriodTo]);
+  }, [roles, canManage, canRegister, recordsPeriodFrom, recordsPeriodTo, showArchivedRecords]);
 
   useEffect(() => {
     if (!canManage || !selectedUserId || !detailMode) return;
@@ -913,7 +1004,7 @@ export default function TimeRegisterPage() {
       setError(err.message)
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUserId, detailMode, recordsPeriodFrom, recordsPeriodTo]);
+  }, [selectedUserId, detailMode, recordsPeriodFrom, recordsPeriodTo, showArchivedRecords]);
 
   useEffect(() => {
     if (canManage) return;
@@ -1328,6 +1419,7 @@ export default function TimeRegisterPage() {
   }
 
   function openEditRow(row: WorkRow) {
+    if (row.isPendingRetroactive || row.isVacation) return;
     setEditingRow(row);
     setEditingValues({
       clock_in: toLocalInput(row.clockIn?.recordedAt),
@@ -1336,6 +1428,72 @@ export default function TimeRegisterPage() {
       clock_out: toLocalInput(row.clockOut?.recordedAt)
     });
     setEditReason("");
+  }
+
+  function openArchiveModal(row: WorkRow) {
+    if (!canArchive || row.isPendingRetroactive || row.isVacation) return;
+    if (workRowEntryIds(row).length === 0) {
+      setError("Não há batidas para arquivar nesta linha.");
+      return;
+    }
+    setArchiveTarget(row);
+    setArchiveReason("");
+    setError(null);
+  }
+
+  function closeArchiveModal() {
+    if (archiveBusy) return;
+    setArchiveTarget(null);
+    setArchiveReason("");
+  }
+
+  async function confirmArchiveRow() {
+    if (!archiveTarget) return;
+    const entryIds = workRowEntryIds(archiveTarget);
+    if (entryIds.length === 0) {
+      setError("Não há batidas para arquivar nesta linha.");
+      return;
+    }
+    if (archiveReason.trim().length < 3) {
+      setError("Informe o motivo do arquivamento (mínimo 3 caracteres).");
+      return;
+    }
+    setArchiveBusy(true);
+    setError(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/time-entries/archive`, {
+        method: "POST",
+        body: JSON.stringify({ entryIds, reason: archiveReason.trim() })
+      });
+      setOkMsg("Registro arquivado com sucesso.");
+      setArchiveTarget(null);
+      setArchiveReason("");
+      await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
+  async function unarchiveRow(row: WorkRow) {
+    if (!canArchive) return;
+    const entryIds = workRowEntryIds(row);
+    if (entryIds.length === 0) return;
+    setUnarchiveBusyKey(row.key);
+    setError(null);
+    try {
+      await apiFetch(`/v1/tenants/${tenantId}/time-entries/unarchive`, {
+        method: "POST",
+        body: JSON.stringify({ entryIds })
+      });
+      setOkMsg("Registro desarquivado com sucesso.");
+      await loadData(canManage ? selectedUserId || undefined : undefined, canManage);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUnarchiveBusyKey(null);
+    }
   }
 
   async function submitEditRow(event: FormEvent<HTMLFormElement>) {
@@ -1713,7 +1871,7 @@ export default function TimeRegisterPage() {
       {(canManage ? detailMode && Boolean(selectedUserId) : true) ? (
       <div className="card table-wrap">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <h3 style={{ margin: 0 }}>Registros</h3>
+          <h3 style={{ margin: 0 }}>{showArchivedRecords ? "Registros arquivados" : "Registros"}</h3>
           <div className="row" style={{ gap: 10, flexWrap: "wrap", alignItems: "end" }}>
             <label>
               Período de
@@ -1731,6 +1889,19 @@ export default function TimeRegisterPage() {
                 onChange={setRecordsPeriodTo}
               />
             </label>
+            {canArchive ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setShowArchivedRecords((current) => !current);
+                  setOkMsg(null);
+                  setError(null);
+                }}
+              >
+                {showArchivedRecords ? "Voltar aos ativos" : "Arquivados"}
+              </button>
+            ) : null}
           </div>
         </div>
         <table className="table">
@@ -1808,20 +1979,29 @@ export default function TimeRegisterPage() {
               //   • linha APROVADA real    → row.retroactiveRequest (status approved, com createdTimeEntryIds)
               const retroAdj = row.retroactiveRequest;
               const isPendingRetro = Boolean(row.isPendingRetroactive);
+              const isVacation = Boolean(row.isVacation);
               const retroEntries = row.pendingRetroEntries ?? {};
 
-              const clockInLabel = isPendingRetro
-                ? toDateLabel(retroEntries.clock_in)
-                : toDateLabel(row.clockIn?.recordedAt);
-              const lunchOutLabel = isPendingRetro
-                ? toDateLabel(retroEntries.lunch_out)
-                : toDateLabel(row.lunchOut?.recordedAt);
-              const lunchInLabel = isPendingRetro
-                ? toDateLabel(retroEntries.lunch_in)
-                : toDateLabel(row.lunchIn?.recordedAt);
-              const clockOutLabel = isPendingRetro
-                ? toDateLabel(retroEntries.clock_out)
-                : toDateLabel(row.clockOut?.recordedAt);
+              const clockInLabel = isVacation
+                ? "Férias"
+                : isPendingRetro
+                  ? toDateLabel(retroEntries.clock_in)
+                  : toDateLabel(row.clockIn?.recordedAt);
+              const lunchOutLabel = isVacation
+                ? "Férias"
+                : isPendingRetro
+                  ? toDateLabel(retroEntries.lunch_out)
+                  : toDateLabel(row.lunchOut?.recordedAt);
+              const lunchInLabel = isVacation
+                ? "Férias"
+                : isPendingRetro
+                  ? toDateLabel(retroEntries.lunch_in)
+                  : toDateLabel(row.lunchIn?.recordedAt);
+              const clockOutLabel = isVacation
+                ? "Férias"
+                : isPendingRetro
+                  ? toDateLabel(retroEntries.clock_out)
+                  : toDateLabel(row.clockOut?.recordedAt);
 
               const statusClass =
                 latestAdj?.status === "approved"
@@ -1846,7 +2026,7 @@ export default function TimeRegisterPage() {
                   <td>{new Date(`${row.baseDate}T00:00:00`).toLocaleDateString("pt-BR")}</td>
                   <td>
                     {clockInLabel}{" "}
-                    {row.clockIn ? (
+                    {!isVacation && row.clockIn ? (
                       <button
                         className="icon-btn"
                         title="Ver histórico da entrada"
@@ -1859,7 +2039,7 @@ export default function TimeRegisterPage() {
                   </td>
                   <td>
                     {lunchOutLabel}{" "}
-                    {row.lunchOut ? (
+                    {!isVacation && row.lunchOut ? (
                       <button
                         className="icon-btn"
                         title="Ver histórico da saída para almoço"
@@ -1872,7 +2052,7 @@ export default function TimeRegisterPage() {
                   </td>
                   <td>
                     {lunchInLabel}{" "}
-                    {row.lunchIn ? (
+                    {!isVacation && row.lunchIn ? (
                       <button
                         className="icon-btn"
                         title="Ver histórico do retorno do almoço"
@@ -1885,7 +2065,7 @@ export default function TimeRegisterPage() {
                   </td>
                   <td>
                     {clockOutLabel}{" "}
-                    {row.clockOut ? (
+                    {!isVacation && row.clockOut ? (
                       <button
                         className="icon-btn"
                         title="Ver histórico da saída"
@@ -1897,7 +2077,7 @@ export default function TimeRegisterPage() {
                     ) : null}
                   </td>
                   <td>
-                    {isPendingRetro ? (
+                    {isPendingRetro || isVacation ? (
                       <span className="muted">—</span>
                     ) : (
                       <span className={`status-pill ${balance >= 0 ? "success" : "danger"}`}>{formatBalance(balance)}</span>
@@ -1905,7 +2085,9 @@ export default function TimeRegisterPage() {
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                      {!canManage ? (
+                      {isVacation ? (
+                        <span className="status-pill neutral">Férias</span>
+                      ) : !canManage ? (
                         <>
                           {!isPendingRetro ? (
                             <button className="secondary" onClick={() => openAdjustModal(row)}>Solicitar ajuste</button>
@@ -1945,32 +2127,57 @@ export default function TimeRegisterPage() {
                             </>
                           ) : (
                             <>
-                              <button
-                                className="icon-btn"
-                                style={statusIconStyle(latestAdj?.status)}
-                                title={
-                                  latestAdj
-                                    ? latestAdj.status === "pending"
-                                      ? "Analisar solicitação pendente"
-                                      : latestAdj.status === "approved"
-                                        ? "Última solicitação aprovada"
-                                        : "Última solicitação recusada"
-                                    : "Sem solicitação"
-                                }
-                                onClick={() => latestAdj && setReviewing(latestAdj)}
-                                disabled={!latestAdj}
-                              >
-                                {latestAdj?.status === "approved" ? <CheckCircle2 size={14} /> : latestAdj?.status === "rejected" ? <XCircle size={14} /> : <Clock3 size={14} />}
-                              </button>
-                              <button
-                                className="icon-btn"
-                                title="Editar"
-                                aria-label="Editar registro de ponto"
-                                onClick={() => openEditRow(row)}
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              {retroAdj && retroAdj.status === "approved" ? (
+                              {!showArchivedRecords ? (
+                                <button
+                                  className="icon-btn"
+                                  style={statusIconStyle(latestAdj?.status)}
+                                  title={
+                                    latestAdj
+                                      ? latestAdj.status === "pending"
+                                        ? "Analisar solicitação pendente"
+                                        : latestAdj.status === "approved"
+                                          ? "Última solicitação aprovada"
+                                          : "Última solicitação recusada"
+                                      : "Sem solicitação"
+                                  }
+                                  onClick={() => latestAdj && setReviewing(latestAdj)}
+                                  disabled={!latestAdj}
+                                >
+                                  {latestAdj?.status === "approved" ? <CheckCircle2 size={14} /> : latestAdj?.status === "rejected" ? <XCircle size={14} /> : <Clock3 size={14} />}
+                                </button>
+                              ) : null}
+                              {!showArchivedRecords ? (
+                                <button
+                                  className="icon-btn"
+                                  title="Editar"
+                                  aria-label="Editar registro de ponto"
+                                  onClick={() => openEditRow(row)}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              ) : null}
+                              {canArchive && !showArchivedRecords ? (
+                                <button
+                                  className="icon-btn"
+                                  title="Arquivar registro"
+                                  aria-label="Arquivar registro de ponto"
+                                  onClick={() => openArchiveModal(row)}
+                                >
+                                  <Archive size={14} />
+                                </button>
+                              ) : null}
+                              {canArchive && showArchivedRecords ? (
+                                <button
+                                  className="icon-btn"
+                                  title="Desarquivar registro"
+                                  aria-label="Desarquivar registro de ponto"
+                                  disabled={unarchiveBusyKey === row.key}
+                                  onClick={() => void unarchiveRow(row)}
+                                >
+                                  <ArchiveRestore size={14} />
+                                </button>
+                              ) : null}
+                              {!showArchivedRecords && retroAdj && retroAdj.status === "approved" ? (
                                 <span className="status-pill success" title="Originado de pedido retroativo aprovado">
                                   Retroativo aprovado
                                 </span>
@@ -1986,7 +2193,11 @@ export default function TimeRegisterPage() {
             })}
             {sortedRecordRows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="muted">Sem registros no período selecionado.</td>
+                <td colSpan={9} className="muted">
+                  {showArchivedRecords
+                    ? "Sem registros arquivados no período selecionado."
+                    : "Sem registros no período selecionado."}
+                </td>
               </tr>
             ) : null}
           </tbody>
@@ -2196,6 +2407,35 @@ export default function TimeRegisterPage() {
         onCancel={() => setConfirmCloseMonth(false)}
         onConfirm={closeMonthReport}
       />
+
+      <ConfirmModal
+        open={Boolean(archiveTarget)}
+        title="Arquivar registro de ponto"
+        message={
+          archiveTarget
+            ? `Arquivar o registro de ${new Date(`${archiveTarget.baseDate}T00:00:00`).toLocaleDateString("pt-BR")}? Ele sairá da lista ativa e dos relatórios, mas poderá ser restaurado depois.`
+            : ""
+        }
+        confirmLabel={archiveBusy ? "Arquivando..." : "Arquivar"}
+        cancelLabel="Cancelar"
+        danger
+        busy={archiveBusy}
+        busyLabel="Arquivando..."
+        error={error}
+        onCancel={closeArchiveModal}
+        onConfirm={() => void confirmArchiveRow()}
+      >
+        <label className="stack" style={{ marginTop: 12, gap: 6 }}>
+          <span>Motivo do arquivamento</span>
+          <textarea
+            value={archiveReason}
+            onChange={(e) => setArchiveReason(e.target.value)}
+            placeholder="Descreva o motivo (obrigatório)"
+            rows={3}
+            disabled={archiveBusy}
+          />
+        </label>
+      </ConfirmModal>
 
       {editingRow ? (
         <div className="modal-backdrop" role="presentation">

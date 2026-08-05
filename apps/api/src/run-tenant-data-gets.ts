@@ -276,7 +276,15 @@ export async function runTenantRecruitmentApplicationResumeDownloadGet(
 export async function runTenantTimeEntriesListGet(
   authorizationHeader: string | null | undefined,
   tenantId: string,
-  query: { targetUserId?: string; from?: string; to?: string; page?: string; pageSize?: string },
+  query: {
+    targetUserId?: string;
+    from?: string;
+    to?: string;
+    archivedMode?: string;
+    onlyArchived?: string;
+    page?: string;
+    pageSize?: string;
+  },
   xTenantCompanyId: string | null | undefined
 ): Promise<JsonHttpResult> {
   const s = await getBearerSession(authorizationHeader);
@@ -284,6 +292,10 @@ export async function runTenantTimeEntriesListGet(
   const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, { authorizationHeader, actorUserId: s.userId });
   if (!scope.ok) return { status: scope.status, body: scope.body };
   try {
+    const archivedMode =
+      query.archivedMode === "archived" || query.onlyArchived === "true" || query.onlyArchived === "1"
+        ? "archived"
+        : "active";
     const result = await workforceHandlers.listTimeEntries({
       tenantId,
       companyId: scope.companyId ?? undefined,
@@ -291,6 +303,7 @@ export async function runTenantTimeEntriesListGet(
       targetUserId: query.targetUserId,
       from: query.from,
       to: query.to,
+      archivedMode,
       page: query.page,
       pageSize: query.pageSize
     });
@@ -580,6 +593,90 @@ export async function runTenantOncallShiftByIdGet(
       companyId: scope.companyId ?? undefined,
       userId: s.userId,
       oncallShiftId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/vacations */
+export async function runTenantVacationsListGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  query: {
+    targetUserId?: string;
+    from?: string;
+    to?: string;
+    name?: string;
+    email?: string;
+    cpf?: string;
+    department?: string;
+    positionTitle?: string;
+    contractType?: string;
+    status?: string;
+    tag?: string;
+    mineOnly?: string;
+    page?: string;
+    pageSize?: string;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.listVacations({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      targetUserId: query.targetUserId,
+      from: query.from,
+      to: query.to,
+      name: query.name,
+      email: query.email,
+      cpf: query.cpf,
+      department: query.department,
+      positionTitle: query.positionTitle,
+      contractType: query.contractType,
+      status: query.status,
+      tag: query.tag,
+      mineOnly: query.mineOnly,
+      page: query.page,
+      pageSize: query.pageSize
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** GET /v1/tenants/:tenantId/vacations/:vacationId */
+export async function runTenantVacationByIdGet(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  vacationId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.getVacationById({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      vacationId
     });
     return { status: 200, body: result };
   } catch (error) {

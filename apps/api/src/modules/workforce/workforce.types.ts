@@ -57,6 +57,9 @@ export type TimeEntry = {
   source: string;
   note: string | null;
   oncallShiftId?: string | null;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+  archiveReason?: string | null;
   createdAt: string;
 };
 
@@ -105,6 +108,35 @@ export type TimeEntryChangeLog = {
   reason: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
+};
+
+export type VacationPeriodStatus = "active" | "cancelled";
+
+export type VacationPeriod = {
+  id: string;
+  tenantId: string;
+  companyId: string;
+  userId: string;
+  startDate: string;
+  endDate: string;
+  allowTimePunch: boolean;
+  status: VacationPeriodStatus;
+  note: string | null;
+  employeeFullName: string | null;
+  employeeEmail: string | null;
+  employeeCpf: string | null;
+  employeePhone: string | null;
+  department: string | null;
+  positionTitle: string | null;
+  contractType: string | null;
+  employeeTags: string[];
+  createdBy: string | null;
+  updatedBy: string | null;
+  cancelledAt: string | null;
+  cancelledByUserId: string | null;
+  cancelReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type OncallShiftStatus = "pending_ack" | "acknowledged" | "entry_registered" | "cancelled";
