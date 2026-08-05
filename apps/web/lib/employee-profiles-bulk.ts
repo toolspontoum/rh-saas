@@ -19,9 +19,16 @@ export async function fetchEmployeeProfilesBulk(
 ): Promise<Record<string, EmployeeProfileBulkItem>> {
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   if (ids.length === 0) return {};
-  const res = await apiFetch<{ items: Record<string, EmployeeProfileBulkItem> }>(
-    `/v1/tenants/${tenantId}/employee-profiles/bulk`,
-    { method: "POST", body: JSON.stringify({ targetUserIds: ids }) }
-  );
-  return res.items ?? {};
+
+  const chunkSize = 250;
+  const merged: Record<string, EmployeeProfileBulkItem> = {};
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const res = await apiFetch<{ items: Record<string, EmployeeProfileBulkItem> }>(
+      `/v1/tenants/${tenantId}/employee-profiles/bulk`,
+      { method: "POST", body: JSON.stringify({ targetUserIds: chunk }) }
+    );
+    Object.assign(merged, res.items ?? {});
+  }
+  return merged;
 }

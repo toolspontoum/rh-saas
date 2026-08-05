@@ -47,7 +47,30 @@ export async function resolveCompanyScopeFromHeader(
   }
 
   if (userId) {
-    const prepostoCompanyIds = await findPrepostoCompanyIdsForUser(tenantId, userId);
+    let prepostoCompanyIds = await findPrepostoCompanyIdsForUser(tenantId, userId);
+
+    // Fallback: papel preposto sem preposto_user_id — usa empresa do perfil.
+    if (prepostoCompanyIds.length === 0) {
+      const { data: roleRows } = await supabaseAdmin
+        .from("user_tenant_roles")
+        .select("role")
+        .eq("tenant_id", tenantId)
+        .eq("user_id", userId)
+        .eq("is_active", true);
+      const roles = ((roleRows ?? []) as { role: string }[]).map((r) => r.role);
+      const isPrivileged = roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+      if (roles.includes("preposto") && !isPrivileged) {
+        const { data: profile } = await supabaseAdmin
+          .from("tenant_user_profiles")
+          .select("company_id")
+          .eq("tenant_id", tenantId)
+          .eq("user_id", userId)
+          .maybeSingle();
+        const profileCompanyId = (profile as { company_id?: string } | null)?.company_id;
+        if (profileCompanyId) prepostoCompanyIds = [profileCompanyId];
+      }
+    }
+
     if (prepostoCompanyIds.length > 0) {
       const raw = xTenantCompanyId?.trim() ?? "";
       if (prepostoCompanyIds.length === 1) {

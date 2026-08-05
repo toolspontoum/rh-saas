@@ -1631,6 +1631,27 @@ apiRouter.post("/v1/tenants/:tenantId/backoffice-users", requireAuth, async (req
   }
 });
 
+apiRouter.patch("/v1/tenants/:tenantId/backoffice-users/:targetUserId", requireAuth, async (req, res) => {
+  try {
+    const result = await tenantUsersHandlers.updateBackofficeUser({
+      tenantId: req.params.tenantId,
+      actorUserId: (req as AuthenticatedRequest).auth.userId,
+      companyId: getTenantCompanyId(req),
+      targetUserId: req.params.targetUserId,
+      fullName: req.body?.fullName,
+      email: req.body?.email,
+      role: req.body?.role,
+      cpf: req.body?.cpf,
+      phone: req.body?.phone,
+      prepostoCompanyId: req.body?.prepostoCompanyId ?? undefined
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+  }
+});
+
 apiRouter.patch("/v1/tenants/:tenantId/users/:targetUserId/status", requireAuth, async (req, res) => {
   try {
     const result = await tenantUsersHandlers.updateUserStatus({
@@ -1995,7 +2016,8 @@ apiRouter.post("/v1/tenants/:tenantId/time-entries/archive", requireAuth, async 
       companyId: getTenantCompanyId(req),
       userId: (req as AuthenticatedRequest).auth.userId,
       entryIds: req.body?.entryIds,
-      reason: req.body?.reason
+      reason: req.body?.reason,
+      relatedEntryIds: req.body?.relatedEntryIds
     });
     return res.status(200).json(result);
   } catch (error) {

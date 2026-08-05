@@ -129,133 +129,99 @@ export class TenantUsersRepository {
     const showPurged = input.includePurgedProfiles === true;
     const includeAuthMeta = input.includeAuthMeta === true;
 
-    if (input.companyId) {
+    /**
+     * Base = perfis únicos (não linhas de role). Com "Todas" ou projeto selecionado,
+     * carrega o escopo completo, aplica search e só então pagina — evita cortar
+     * resultados nos primeiros N e filtrar só o que já veio na página.
+     */
+    const profiles = await this.fetchAllProfilesForUserList({
+      tenantId: input.tenantId,
+      companyId: input.companyId ?? null,
+      status: input.status,
+      showPurged
+    });
+
+    if (profiles.length === 0) {
+      return { items: [], page: input.page, pageSize: input.pageSize };
+    }
+
+    const userIds = profiles.map((p) => p.user_id);
+    const roleRows = await this.fetchRoleRowsForUserIds(input.tenantId, userIds);
+    const authById = includeAuthMeta
+      ? await this.fetchAuthUsersByIds(userIds)
+      : new Map<string, { email: string | null; lastSignInAt: string | null }>();
+
+    let items = await this.buildTenantUsersForProfiles(
+      input.tenantId,
+      profiles,
+      roleRows,
+      authById,
+      includeAuthMeta
+    );
+    if (input.search) {
+      items = this.filterTenantUsersBySearch(items, input.search);
+    }
+
+    return {
+      items: items.slice(offset, offset + input.pageSize),
+      page: input.page,
+      pageSize: input.pageSize
+    };
+  }
+
+  private async fetchAllProfilesForUserList(input: {
+    tenantId: string;
+    companyId: string | null;
+    status?: TenantUserStatus;
+    showPurged: boolean;
+  }): Promise<TenantUserProfileRow[]> {
+    const pageSize = 1000;
+    const all: TenantUserProfileRow[] = [];
+    for (let from = 0; from < 50_000; from += pageSize) {
       let profileQuery = this.db
         .from("tenant_user_profiles")
         .select(
           "user_id,company_id,full_name,cpf,phone,personal_email,status,offboard_reason,offboarded_at,data_purged_at"
         )
         .eq("tenant_id", input.tenantId)
-        .eq("company_id", input.companyId);
-      if (!showPurged) {
+        .order("full_name", { ascending: true })
+        .order("user_id", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (input.companyId) {
+        profileQuery = profileQuery.eq("company_id", input.companyId);
+      }
+      if (!input.showPurged) {
         profileQuery = profileQuery.is("data_purged_at", null);
       }
-      if (input.status) profileQuery = profileQuery.eq("status", input.status);
-      profileQuery = profileQuery.order("user_id", { ascending: true });
-
-      const { data: profileData, error: profileError } = await profileQuery.range(
-        offset,
-        offset + input.pageSize - 1
-      );
-      if (profileError) throw profileError;
-      const profiles = (profileData ?? []) as unknown as TenantUserProfileRow[];
-      if (profiles.length === 0) {
-        return { items: [], page: input.page, pageSize: input.pageSize };
+      if (input.status) {
+        profileQuery = profileQuery.eq("status", input.status);
       }
 
-      const pageUserIds = profiles.map((p) => p.user_id);
-      const { data: roleData, error: roleError } = await this.db
+      const { data, error } = await profileQuery;
+      if (error) throw error;
+      const batch = (data ?? []) as unknown as TenantUserProfileRow[];
+      all.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return all;
+  }
+
+  private async fetchRoleRowsForUserIds(tenantId: string, userIds: string[]): Promise<UserRoleRow[]> {
+    if (userIds.length === 0) return [];
+    const chunkSize = 200;
+    const rows: UserRoleRow[] = [];
+    for (let i = 0; i < userIds.length; i += chunkSize) {
+      const chunk = userIds.slice(i, i + chunkSize);
+      const { data, error } = await this.db
         .from("user_tenant_roles")
         .select("user_id,role,is_active")
-        .eq("tenant_id", input.tenantId)
-        .in("user_id", pageUserIds);
-      if (roleError) throw roleError;
-      const roleRows = (roleData ?? []) as unknown as UserRoleRow[];
-
-      const authById = includeAuthMeta
-        ? await this.fetchAuthUsersByIds(profiles.map((p) => p.user_id))
-        : new Map<string, { email: string | null; lastSignInAt: string | null }>();
-      let items = await this.buildTenantUsersForProfiles(input.tenantId, profiles, roleRows, authById, includeAuthMeta);
-      if (input.search) {
-        items = this.filterTenantUsersBySearch(items, input.search);
-      }
-      return { items, page: input.page, pageSize: input.pageSize };
+        .eq("tenant_id", tenantId)
+        .in("user_id", chunk);
+      if (error) throw error;
+      rows.push(...((data ?? []) as unknown as UserRoleRow[]));
     }
-
-    let query = this.db
-      .from("user_tenant_roles")
-      .select("user_id,role,is_active")
-      .eq("tenant_id", input.tenantId);
-
-    if (input.status) {
-      query = query.eq("tenant_user_profiles.status", input.status);
-    }
-
-    const { data, error } = await query.range(offset, offset + input.pageSize - 1);
-    if (error) throw error;
-
-    const rows = (data ?? []) as unknown as UserRoleRow[];
-    const userIds = [...new Set(rows.map((row) => row.user_id))];
-
-    let profiles: TenantUserProfileRow[] = [];
-    if (userIds.length > 0) {
-      let profilesQuery = this.db
-        .from("tenant_user_profiles")
-        .select(
-          "user_id,company_id,full_name,cpf,phone,personal_email,status,offboard_reason,offboarded_at,data_purged_at"
-        )
-        .eq("tenant_id", input.tenantId)
-        .in("user_id", userIds);
-      if (!showPurged) {
-        profilesQuery = profilesQuery.is("data_purged_at", null);
-      }
-      if (input.status) profilesQuery = profilesQuery.eq("status", input.status);
-
-      const { data: profilesData, error: profilesError } = await profilesQuery;
-      if (profilesError) throw profilesError;
-      profiles = (profilesData ?? []) as unknown as TenantUserProfileRow[];
-    }
-
-    const profileByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
-
-    const authById = includeAuthMeta
-      ? await this.fetchAuthUsersByIds(userIds)
-      : new Map<string, { email: string | null; lastSignInAt: string | null }>();
-    const grouped = new Map<string, TenantUser>();
-
-    for (const row of rows) {
-      const profile = profileByUserId.get(row.user_id);
-      if (!profile) continue;
-
-      const authMeta = authById.get(row.user_id) ?? null;
-
-      const existing = grouped.get(row.user_id);
-      if (existing) {
-        existing.roles.push(row.role);
-        existing.isAccessEnabled = existing.isAccessEnabled || row.is_active;
-        if (includeAuthMeta) {
-          existing.lastSignInAt = existing.lastSignInAt ?? authMeta?.lastSignInAt ?? null;
-        }
-        continue;
-      }
-
-      grouped.set(row.user_id, {
-        userId: row.user_id,
-        tenantId: input.tenantId,
-        companyId: profile.company_id,
-        email: resolveTenantUserDisplayEmail(profile, authMeta?.email),
-        fullName: profile.full_name,
-        cpf: profile.cpf,
-        phone: profile.phone,
-        status: profile.status,
-        offboardReason: profile.offboard_reason,
-        offboardedAt: profile.offboarded_at,
-        roles: [row.role],
-        isAccessEnabled: row.is_active,
-        lastSignInAt: includeAuthMeta ? (authMeta?.lastSignInAt ?? null) : null
-      });
-    }
-
-    let items = [...grouped.values()];
-    if (input.search) {
-      items = this.filterTenantUsersBySearch(items, input.search);
-    }
-
-    return {
-      items,
-      page: input.page,
-      pageSize: input.pageSize
-    };
+    return rows;
   }
 
   async bulkAuthAccessMeta(
@@ -270,13 +236,22 @@ export class TenantUsersRepository {
   }
 
   private filterTenantUsersBySearch(items: TenantUser[], search: string): TenantUser[] {
-    const needle = search.trim().toLowerCase();
+    const needle = search
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
     if (!needle) return items;
+    const fold = (value: string | null | undefined) =>
+      (value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
     return items.filter((item) => {
-      const byEmail = (item.email ?? "").toLowerCase().includes(needle);
-      const byName = (item.fullName ?? "").toLowerCase().includes(needle);
-      const byCpf = (item.cpf ?? "").toLowerCase().includes(needle);
-      const byPhone = (item.phone ?? "").toLowerCase().includes(needle);
+      const byEmail = fold(item.email).includes(needle);
+      const byName = fold(item.fullName).includes(needle);
+      const byCpf = fold(item.cpf).includes(needle);
+      const byPhone = fold(item.phone).includes(needle);
       return byEmail || byName || byCpf || byPhone;
     });
   }
@@ -1050,6 +1025,91 @@ export class TenantUsersRepository {
       { onConflict: "tenant_id,user_id" }
     );
     if (profileError) throw profileError;
+  }
+
+  async updateAuthUserEmail(userId: string, email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    const { error } = await this.db.auth.admin.updateUserById(userId, { email: normalized });
+    if (error) {
+      const msg = (error.message || "").toLowerCase();
+      if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
+        throw new Error("EMAIL_ALREADY_IN_USE");
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Mantém um único perfil de gestão activo (admin|manager|analyst|preposto).
+   * Não remove o papel employee.
+   */
+  async syncExclusiveBackofficeRole(input: {
+    tenantId: string;
+    userId: string;
+    role: AppRole;
+  }): Promise<void> {
+    const exclusive: AppRole[] = ["admin", "manager", "analyst", "preposto"];
+    for (const role of exclusive) {
+      if (role === input.role) continue;
+      const { error } = await this.db
+        .from("user_tenant_roles")
+        .delete()
+        .eq("tenant_id", input.tenantId)
+        .eq("user_id", input.userId)
+        .eq("role", role);
+      if (error) throw error;
+    }
+    const { error: upsertErr } = await this.db.from("user_tenant_roles").upsert(
+      {
+        tenant_id: input.tenantId,
+        user_id: input.userId,
+        role: input.role,
+        is_active: true
+      },
+      { onConflict: "tenant_id,user_id,role" }
+    );
+    if (upsertErr) throw upsertErr;
+  }
+
+  async ensureEmployeeRole(tenantId: string, userId: string): Promise<void> {
+    const { error } = await this.db.from("user_tenant_roles").upsert(
+      {
+        tenant_id: tenantId,
+        user_id: userId,
+        role: "employee",
+        is_active: true
+      },
+      { onConflict: "tenant_id,user_id,role" }
+    );
+    if (error) throw error;
+  }
+
+  async updateBackofficeProfileFields(input: {
+    tenantId: string;
+    userId: string;
+    companyId?: string | null;
+    fullName: string;
+    email?: string | null;
+    cpf?: string | null;
+    phone?: string | null;
+  }): Promise<void> {
+    const patch: Record<string, unknown> = {
+      full_name: input.fullName.trim(),
+      cpf: input.cpf ? input.cpf.replace(/\D/g, "") || null : null,
+      phone: input.phone?.trim() || null
+    };
+    if (input.email !== undefined) {
+      patch.personal_email = input.email?.trim().toLowerCase() || null;
+    }
+    if (input.companyId) {
+      patch.company_id = input.companyId;
+    }
+    const { error } = await this.db
+      .from("tenant_user_profiles")
+      .update(patch)
+      .eq("tenant_id", input.tenantId)
+      .eq("user_id", input.userId);
+    if (error) throw error;
   }
 
   private employeeLookupMissingUser(hintEmail: string | null): EmployeeLookupResult {

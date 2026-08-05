@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Mail } from "lucide-react";
+import { Mail, Pencil } from "lucide-react";
 
 import { Breadcrumbs } from "../../../../components/breadcrumbs";
 import { ConfirmModal } from "../../../../components/confirm-modal";
@@ -16,6 +16,7 @@ import { getStoredTenantCompanyId } from "../../../../lib/tenant-company-scope";
 
 type TenantUser = {
   userId: string;
+  companyId?: string | null;
   email: string | null;
   fullName: string | null;
   cpf: string | null;
@@ -37,7 +38,7 @@ type TenantCompany = {
 
 type MgmtRole = "admin" | "manager" | "analyst" | "preposto";
 
-type NewMgmtUserForm = {
+type MgmtUserForm = {
   fullName: string;
   email: string;
   role: MgmtRole;
@@ -58,6 +59,8 @@ type PrepostoRow = TenantUser & {
   rowKey: string;
 };
 
+type EditorMode = { type: "create" } | { type: "edit"; user: TenantUser; assignmentCompanyId?: string };
+
 const statusTabs: Array<{ label: string; value: StatusTab }> = [
   { label: "Todos", value: "all" },
   { label: "Ativos", value: "active" },
@@ -73,7 +76,7 @@ const mgmtRoleLabel: Record<MgmtRole, string> = {
   preposto: "Preposto"
 };
 
-const formDefault = (prepostoCompanyId: string): NewMgmtUserForm => ({
+const formDefault = (prepostoCompanyId: string): MgmtUserForm => ({
   fullName: "",
   email: "",
   role: "analyst",
@@ -83,9 +86,7 @@ const formDefault = (prepostoCompanyId: string): NewMgmtUserForm => ({
 });
 
 const isBackofficeMgmt = (user: TenantUser) =>
-  user.roles.some((role) => ["owner", "admin", "manager", "analyst"].includes(role));
-
-type UserSortColumn = "fullName" | "email" | "cpf" | "status" | "company" | "roles";
+  user.roles.some((role) => ["owner", "admin", "manager", "analyst", "preposto"].includes(role));
 
 function mgmtStatusLabel(status: TenantUser["status"]): string {
   if (status === "active") return "Ativo";
@@ -106,13 +107,22 @@ function formatMgmtRoles(user: TenantUser): string {
     .join(", ");
 }
 
+function primaryMgmtRole(user: TenantUser): MgmtRole {
+  if (user.roles.includes("admin")) return "admin";
+  if (user.roles.includes("manager")) return "manager";
+  if (user.roles.includes("analyst")) return "analyst";
+  if (user.roles.includes("preposto")) return "preposto";
+  return "analyst";
+}
+
 export default function TenantUsersPage() {
   const params = useParams<{ tenantId: string }>();
   const tenantId = params?.tenantId ?? "";
 
   const storedCompanyId = useMemo(() => getStoredTenantCompanyId(tenantId), [tenantId]);
 
-  const [form, setForm] = useState<NewMgmtUserForm>(() => formDefault(storedCompanyId ?? ""));
+  const [form, setForm] = useState<MgmtUserForm>(() => formDefault(storedCompanyId ?? ""));
+  const [editor, setEditor] = useState<EditorMode | null>(null);
   const [items, setItems] = useState<TenantUser[]>([]);
   const [prepostoRows, setPrepostoRows] = useState<PrepostoRow[]>([]);
   const [companies, setCompanies] = useState<TenantCompany[]>([]);
@@ -124,11 +134,13 @@ export default function TenantUsersPage() {
   const [passwordResetUserId, setPasswordResetUserId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!editor) return;
     setForm((f) => ({ ...f, prepostoCompanyId: storedCompanyId ?? f.prepostoCompanyId }));
-  }, [storedCompanyId]);
+  }, [storedCompanyId, editor]);
 
   useEffect(() => {
     const onCompany = () => {
@@ -153,30 +165,75 @@ export default function TenantUsersPage() {
     if (statusTab === "preposto") {
       const [co, response] = await Promise.all([
         loadCompanies(),
-        apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}`)
+        apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}&includeAuthMeta=true`)
       ]);
       const users = response.items ?? [];
       const byId = new Map(users.map((u) => [u.userId, u]));
       const sid = getStoredTenantCompanyId(tenantId);
+      const companyName = (id: string | null | undefined) =>
+        co.find((c) => c.id === id)?.name ?? "—";
+
       const expanded: PrepostoRow[] = [];
+      const seen = new Set<string>();
+
       for (const c of co) {
         if (!c.prepostoUserId) continue;
         if (sid && c.id !== sid) continue;
-        const u = byId.get(c.prepostoUserId);
+        const u =
+          byId.get(c.prepostoUserId) ??
+          users.find((item) => item.userId === c.prepostoUserId) ??
+          null;
         if (!u) continue;
+        const rowKey = `${u.userId}-${c.id}`;
+        if (seen.has(rowKey)) continue;
+        seen.add(rowKey);
         expanded.push({
           ...u,
           assignmentCompanyId: c.id,
           assignmentCompanyName: c.name,
-          rowKey: `${u.userId}-${c.id}`
+          rowKey
         });
       }
+
+      for (const u of users) {
+        if (!u.roles.includes("preposto")) continue;
+        const linked = co.filter((c) => c.prepostoUserId === u.userId);
+        if (linked.length > 0) {
+          for (const c of linked) {
+            if (sid && c.id !== sid) continue;
+            const rowKey = `${u.userId}-${c.id}`;
+            if (seen.has(rowKey)) continue;
+            seen.add(rowKey);
+            expanded.push({
+              ...u,
+              assignmentCompanyId: c.id,
+              assignmentCompanyName: c.name,
+              rowKey
+            });
+          }
+          continue;
+        }
+
+        if (sid && u.companyId !== sid) continue;
+        const rowKey = `${u.userId}-${u.companyId ?? "role"}`;
+        if (seen.has(rowKey)) continue;
+        seen.add(rowKey);
+        expanded.push({
+          ...u,
+          assignmentCompanyId: u.companyId ?? "",
+          assignmentCompanyName: companyName(u.companyId),
+          rowKey
+        });
+      }
+
       setPrepostoRows(expanded);
       setItems([]);
       return;
     }
 
-    const response = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?${q.toString()}`);
+    const response = await apiFetch<Paginated<TenantUser>>(
+      `/v1/tenants/${tenantId}/users?${q.toString()}&includeAuthMeta=true`
+    );
     setItems((response.items ?? []).filter(isBackofficeMgmt));
     setPrepostoRows([]);
   }, [tenantId, statusTab, search, loadCompanies]);
@@ -186,10 +243,11 @@ export default function TenantUsersPage() {
   }, [loadData]);
 
   useEffect(() => {
+    if (!editor) return;
     if (form.role !== "preposto") return;
     if (storedCompanyId) return;
     loadCompanies().catch(() => {});
-  }, [form.role, storedCompanyId, loadCompanies]);
+  }, [editor, form.role, storedCompanyId, loadCompanies]);
 
   const selectedUser = useMemo(() => {
     if (!pending) return null;
@@ -197,6 +255,51 @@ export default function TenantUsersPage() {
     if (fromList) return fromList;
     return prepostoRows.find((item) => item.userId === pending.userId) ?? null;
   }, [pending, items, prepostoRows]);
+
+  function openCreateModal() {
+    setFormError(null);
+    setError(null);
+    setForm(formDefault(storedCompanyId ?? ""));
+    setEditor({ type: "create" });
+    if (!storedCompanyId) {
+      void loadCompanies().catch(() => {});
+    }
+  }
+
+  function openEditModal(user: TenantUser, assignmentCompanyId?: string) {
+    if (user.roles.includes("owner")) {
+      setError("O perfil owner nao pode ser editado por esta tela.");
+      return;
+    }
+    setFormError(null);
+    setError(null);
+    const role = primaryMgmtRole(user);
+    const companyFromLink =
+      assignmentCompanyId ||
+      companies.find((c) => c.prepostoUserId === user.userId)?.id ||
+      user.companyId ||
+      storedCompanyId ||
+      "";
+    setForm({
+      fullName: user.fullName ?? "",
+      email: user.email ?? "",
+      role,
+      cpf: formatCpf(user.cpf ?? ""),
+      phone: formatPhoneBr(user.phone ?? ""),
+      prepostoCompanyId: companyFromLink
+    });
+    setEditor({ type: "edit", user, assignmentCompanyId: companyFromLink || undefined });
+    if (role === "preposto" && !storedCompanyId) {
+      void loadCompanies().catch(() => {});
+    }
+  }
+
+  function closeEditor() {
+    if (submitting) return;
+    setEditor(null);
+    setFormError(null);
+    setForm(formDefault(storedCompanyId ?? ""));
+  }
 
   function validateForm(): string | null {
     if (!form.fullName.trim()) return "Informe o nome completo.";
@@ -214,42 +317,53 @@ export default function TenantUsersPage() {
     return null;
   }
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
+    setFormError(null);
     setOkMsg(null);
     const validation = validateForm();
     if (validation) {
-      setError(validation);
+      setFormError(validation);
       return;
     }
+    if (!editor) return;
 
     const prepostoCompanyId =
       form.role === "preposto" ? (storedCompanyId ?? form.prepostoCompanyId.trim()) || undefined : undefined;
     const createdAsPreposto = form.role === "preposto";
+    const payload = {
+      fullName: form.fullName.trim(),
+      email: form.email.trim().toLowerCase(),
+      role: form.role,
+      cpf: onlyDigits(form.cpf) || undefined,
+      phone: onlyDigits(form.phone) || undefined,
+      ...(createdAsPreposto && prepostoCompanyId ? { prepostoCompanyId } : {})
+    };
 
     setSubmitting(true);
     try {
-      await apiFetch(`/v1/tenants/${tenantId}/backoffice-users`, {
-        method: "POST",
-        body: JSON.stringify({
-          fullName: form.fullName.trim(),
-          email: form.email.trim().toLowerCase(),
-          role: form.role,
-          cpf: onlyDigits(form.cpf) || undefined,
-          phone: onlyDigits(form.phone) || undefined,
-          ...(createdAsPreposto && prepostoCompanyId ? { prepostoCompanyId } : {})
-        })
-      });
+      if (editor.type === "create") {
+        await apiFetch(`/v1/tenants/${tenantId}/backoffice-users`, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        setOkMsg(
+          createdAsPreposto
+            ? "Preposto convidado e vinculado ao projeto."
+            : "Usuario de gestao salvo com sucesso."
+        );
+      } else {
+        await apiFetch(`/v1/tenants/${tenantId}/backoffice-users/${editor.user.userId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload)
+        });
+        setOkMsg("Usuario de gestao atualizado com sucesso.");
+      }
+      setEditor(null);
       setForm(formDefault(storedCompanyId ?? ""));
-      setOkMsg(
-        createdAsPreposto
-          ? "Preposto convidado e vinculado ao projeto."
-          : "Usuario de gestao salvo com sucesso."
-      );
       await loadData();
     } catch (err) {
-      setError((err as Error).message);
+      setFormError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
@@ -306,7 +420,7 @@ export default function TenantUsersPage() {
     }
   }
 
-  const tableRows: Array<TenantUser & { assignmentCompanyName?: string; rowKey: string }> =
+  const tableRows: Array<TenantUser & { assignmentCompanyName?: string; assignmentCompanyId?: string; rowKey: string }> =
     statusTab === "preposto"
       ? prepostoRows
       : items.map((u) => ({ ...u, rowKey: u.userId }));
@@ -325,101 +439,19 @@ export default function TenantUsersPage() {
 
   const { sort, toggleSort, sortedRows } = useTableSort(tableRows, sortGetters, "fullName");
 
+  const editorTitle = editor?.type === "edit" ? "Editar usuario de gestao" : "Novo usuario de gestao";
+
   return (
     <main className="container wide stack" style={{ margin: 0 }}>
       <Breadcrumbs items={[{ label: "Visao Geral", href: `/tenants/${tenantId}/dashboard` }, { label: "Usuarios" }]} />
-      <h1>Usuarios de Gestao</h1>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <h1 style={{ margin: 0 }}>Usuarios de Gestao</h1>
+        <button type="button" onClick={openCreateModal}>
+          Novo Usuario
+        </button>
+      </div>
       {error ? <p className="error">{error}</p> : null}
       {okMsg ? <p>{okMsg}</p> : null}
-
-      <form className="card stack" onSubmit={handleCreate}>
-        <h3>Novo usuario de gestao</h3>
-        <p className="muted">
-          Perfis internos: Admin, RH, Analista ou Preposto. O preposto fica vinculado ao contrato (empresa/projeto)
-          indicado.
-        </p>
-        {!storedCompanyId && form.role !== "preposto" ? (
-          <p className="muted small">
-            Com <strong>Empresa / projeto</strong> em <strong>Todas</strong>, o convite vale para todo o assinante; o
-            cadastro base no sistema usa o primeiro projeto da lista (ordenacao interna).
-          </p>
-        ) : null}
-
-        <div className="form-grid form-grid-2">
-          <label>
-            Nome completo
-            <input value={form.fullName} onChange={(e) => setForm((c) => ({ ...c, fullName: e.target.value }))} />
-          </label>
-          <label>
-            E-mail
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm((c) => ({ ...c, email: e.target.value }))}
-            />
-          </label>
-          <label>
-            Perfil de acesso
-            <select
-              value={form.role}
-              onChange={(e) => {
-                const role = e.target.value as MgmtRole;
-                setForm((c) => ({
-                  ...c,
-                  role,
-                  prepostoCompanyId: storedCompanyId ?? c.prepostoCompanyId
-                }));
-              }}
-            >
-              <option value="admin">Admin</option>
-              <option value="manager">RH</option>
-              <option value="analyst">Analista</option>
-              <option value="preposto">Preposto</option>
-            </select>
-          </label>
-          <label>
-            CPF (opcional)
-            <input value={form.cpf} onChange={(e) => setForm((c) => ({ ...c, cpf: formatCpf(e.target.value) }))} />
-          </label>
-          <label>
-            Telefone (opcional)
-            <input
-              value={form.phone}
-              onChange={(e) => setForm((c) => ({ ...c, phone: formatPhoneBr(e.target.value) }))}
-            />
-          </label>
-        </div>
-
-        {form.role === "preposto" && !storedCompanyId ? (
-          <label className="stack">
-            Empresa / projeto do preposto
-            <select
-              value={form.prepostoCompanyId}
-              onChange={(e) => setForm((c) => ({ ...c, prepostoCompanyId: e.target.value }))}
-              style={{ color: "#000" }}
-            >
-              <option value="">— Selecione —</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id} style={{ color: "#000" }}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <span className="muted small">
-              Se ja houver uma empresa selecionada no menu lateral, o preposto sera vinculado a ela automaticamente.
-            </span>
-          </label>
-        ) : form.role === "preposto" && storedCompanyId ? (
-          <p className="muted small">
-            Preposto sera vinculado a empresa/projeto selecionada no menu lateral:{" "}
-            <strong>{companies.find((c) => c.id === storedCompanyId)?.name ?? storedCompanyId}</strong>
-          </p>
-        ) : null}
-
-        <button type="submit" disabled={submitting}>
-          {submitting ? "Salvando..." : "Salvar usuario"}
-        </button>
-      </form>
 
       <div className="card stack">
         <div className="row">
@@ -461,6 +493,7 @@ export default function TenantUsersPage() {
             <tbody>
               {sortedRows.map((item) => {
                 const rolesLabel = formatMgmtRoles(item);
+                const canEdit = !item.roles.includes("owner");
 
                 return (
                   <tr key={item.rowKey}>
@@ -474,6 +507,26 @@ export default function TenantUsersPage() {
                     <td>{rolesLabel || "-"}</td>
                     <td>
                       <div className="row">
+                        <button
+                          type="button"
+                          className="secondary"
+                          title="Editar"
+                          aria-label="Editar"
+                          disabled={!canEdit || busyUserId === item.userId}
+                          onClick={() =>
+                            openEditModal(
+                              item,
+                              "assignmentCompanyId" in item
+                                ? (item as PrepostoRow).assignmentCompanyId
+                                : undefined
+                            )
+                          }
+                        >
+                          <span className="row" style={{ alignItems: "center", gap: 6 }}>
+                            <Pencil size={14} aria-hidden />
+                            Editar
+                          </span>
+                        </button>
                         <button
                           type="button"
                           className="icon-btn"
@@ -528,6 +581,131 @@ export default function TenantUsersPage() {
           </table>
         )}
       </div>
+
+      {editor ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeEditor}>
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={editorTitle}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 720, width: "min(720px, 96vw)" }}
+          >
+            <div className="section-header">
+              <h3>{editorTitle}</h3>
+              <button type="button" className="secondary" disabled={submitting} onClick={closeEditor}>
+                Fechar
+              </button>
+            </div>
+            <p className="muted">
+              Perfis internos: Admin, RH, Analista ou Preposto. O preposto fica vinculado ao contrato (empresa/projeto)
+              indicado.
+            </p>
+            {!storedCompanyId && form.role !== "preposto" ? (
+              <p className="muted small">
+                Com <strong>Empresa / projeto</strong> em <strong>Todas</strong>, o convite vale para todo o assinante; o
+                cadastro base no sistema usa o primeiro projeto da lista (ordenacao interna).
+              </p>
+            ) : null}
+            {formError ? <p className="error">{formError}</p> : null}
+
+            <form className="stack" onSubmit={handleSubmit}>
+              <div className="form-grid form-grid-2">
+                <label>
+                  Nome completo
+                  <input
+                    value={form.fullName}
+                    onChange={(e) => setForm((c) => ({ ...c, fullName: e.target.value }))}
+                    disabled={submitting}
+                  />
+                </label>
+                <label>
+                  E-mail
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((c) => ({ ...c, email: e.target.value }))}
+                    disabled={submitting}
+                  />
+                </label>
+                <label>
+                  Perfil de acesso
+                  <select
+                    value={form.role}
+                    disabled={submitting}
+                    onChange={(e) => {
+                      const role = e.target.value as MgmtRole;
+                      setForm((c) => ({
+                        ...c,
+                        role,
+                        prepostoCompanyId: storedCompanyId ?? c.prepostoCompanyId
+                      }));
+                    }}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="manager">RH</option>
+                    <option value="analyst">Analista</option>
+                    <option value="preposto">Preposto</option>
+                  </select>
+                </label>
+                <label>
+                  CPF (opcional)
+                  <input
+                    value={form.cpf}
+                    onChange={(e) => setForm((c) => ({ ...c, cpf: formatCpf(e.target.value) }))}
+                    disabled={submitting}
+                  />
+                </label>
+                <label>
+                  Telefone (opcional)
+                  <input
+                    value={form.phone}
+                    onChange={(e) => setForm((c) => ({ ...c, phone: formatPhoneBr(e.target.value) }))}
+                    disabled={submitting}
+                  />
+                </label>
+              </div>
+
+              {form.role === "preposto" && !storedCompanyId ? (
+                <label className="stack">
+                  Empresa / projeto do preposto
+                  <select
+                    value={form.prepostoCompanyId}
+                    onChange={(e) => setForm((c) => ({ ...c, prepostoCompanyId: e.target.value }))}
+                    style={{ color: "#000" }}
+                    disabled={submitting}
+                  >
+                    <option value="">— Selecione —</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id} style={{ color: "#000" }}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="muted small">
+                    Se ja houver uma empresa selecionada no menu lateral, o preposto sera vinculado a ela automaticamente.
+                  </span>
+                </label>
+              ) : form.role === "preposto" && storedCompanyId ? (
+                <p className="muted small">
+                  Preposto sera vinculado a empresa/projeto selecionada no menu lateral:{" "}
+                  <strong>{companies.find((c) => c.id === storedCompanyId)?.name ?? storedCompanyId}</strong>
+                </p>
+              ) : null}
+
+              <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+                <button type="button" className="secondary" disabled={submitting} onClick={closeEditor}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={submitting}>
+                  {submitting ? "Salvando..." : editor.type === "edit" ? "Salvar alteracoes" : "Salvar usuario"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       <ConfirmModal
         open={!!pending}

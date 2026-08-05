@@ -159,6 +159,25 @@ export class TenantCompaniesRepository {
     return count ?? 0;
   }
 
+  /** Remove o utilizador como preposto de todos os contratos do tenant. */
+  async clearPrepostoAssignmentsForUser(tenantId: string, userId: string): Promise<string[]> {
+    const { data, error } = await this.db
+      .from("tenant_companies")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("preposto_user_id", userId);
+    if (error) throw error;
+    const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+    if (ids.length === 0) return [];
+    const { error: updErr } = await this.db
+      .from("tenant_companies")
+      .update({ preposto_user_id: null })
+      .eq("tenant_id", tenantId)
+      .eq("preposto_user_id", userId);
+    if (updErr) throw updErr;
+    return ids;
+  }
+
   async upsertPrepostoRole(tenantId: string, userId: string): Promise<void> {
     const { error } = await this.db.from("user_tenant_roles").upsert(
       {

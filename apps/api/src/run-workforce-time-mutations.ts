@@ -108,7 +108,8 @@ export async function runTimeEntriesArchivePost(
       companyId: scope.companyId,
       userId: s.userId,
       entryIds: body.entryIds,
-      reason: body.reason
+      reason: body.reason,
+      relatedEntryIds: body.relatedEntryIds
     });
     return { status: 200, body: result };
   } catch (error) {

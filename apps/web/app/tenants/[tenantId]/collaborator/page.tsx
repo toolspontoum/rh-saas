@@ -119,8 +119,17 @@ export default function CollaboratorListPage() {
         });
 
       // Carrega lista rapidamente (sem meta do Auth, que é cara).
-      const data = await apiFetch<Paginated<TenantUser>>(`/v1/tenants/${tenantId}/users?page=1&pageSize=100&includeAuthMeta=false`);
-      const allUsers = data.items ?? [];
+      // Pagina até esgotar — pageSize=100 cortava colaboradores quando o escopo vinha amplo.
+      const USERS_PAGE_SIZE = 250;
+      const allUsers: TenantUser[] = [];
+      for (let page = 1; page <= 40; page += 1) {
+        const data = await apiFetch<Paginated<TenantUser>>(
+          `/v1/tenants/${tenantId}/users?page=${page}&pageSize=${USERS_PAGE_SIZE}&includeAuthMeta=false`
+        );
+        const batch = data.items ?? [];
+        allUsers.push(...batch);
+        if (batch.length < USERS_PAGE_SIZE) break;
+      }
       const userIds = allUsers.map((u) => u.userId).filter(Boolean);
       let next: Record<string, EmployeeProfile> = {};
       if (userIds.length > 0) {

@@ -114,6 +114,19 @@ export class CoreAuthTenantService {
       if (preErr) throw preErr;
       const ids = ((preRows ?? []) as { id: string }[]).map((r) => r.id);
       prepostoCompanyId = ids[0] ?? null;
+      if (!prepostoCompanyId) {
+        const privileged = roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
+        if (!privileged) {
+          const { data: profile, error: profileErr } = await supabaseAdmin
+            .from("tenant_user_profiles")
+            .select("company_id")
+            .eq("tenant_id", tenantId)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (profileErr) throw profileErr;
+          prepostoCompanyId = (profile as { company_id?: string } | null)?.company_id ?? null;
+        }
+      }
     }
 
     let resolvedEmail = emailFromToken;
