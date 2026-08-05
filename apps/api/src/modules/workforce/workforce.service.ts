@@ -100,6 +100,22 @@ export class WorkforceService {
     return cid;
   }
 
+  /**
+   * Ao agir sobre um colaborador já aberto (PDF, fechamento, resumo),
+   * usa a empresa do painel se houver; senão a empresa vinculada ao colaborador.
+   */
+  private async resolveCompanyForTargetCollaborator(input: {
+    tenantId: string;
+    targetUserId: string;
+    companyId?: string | null;
+  }): Promise<string> {
+    return this.resolveEmployeeCompanyId({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId: input.companyId
+    });
+  }
+
   private async resolveWorkRuleCompanyId(input: {
     tenantId: string;
     userId: string;
@@ -417,7 +433,7 @@ export class WorkforceService {
       beforeRecordedAt: input.recordedAt
     });
     validateTimeEntrySequence(lastEntry?.entryType ?? null, input.entryType);
-    return this.repository.createTimeEntry({
+    const created = await this.repository.createTimeEntry({
       tenantId: input.tenantId,
       companyId,
       userId: subjectUserId,
@@ -427,6 +443,23 @@ export class WorkforceService {
       source: input.source,
       note: input.note ?? null
     });
+
+    // Inclusão manual pelo gestor: registra no histórico da batida (ícone ⓘ).
+    if (input.source === "admin_manual" || subjectUserId !== actorUserId) {
+      await this.repository.insertTimeEntryChangeLog({
+        tenantId: input.tenantId,
+        timeEntryId: created.id,
+        userId: subjectUserId,
+        changedBy: actorUserId,
+        source: "admin_manual",
+        previousRecordedAt: input.recordedAt,
+        newRecordedAt: input.recordedAt,
+        reason: input.note ?? null,
+        metadata: { action: "created", entryType: input.entryType }
+      });
+    }
+
+    return created;
   }
 
   async listTimeEntries(input: {
@@ -493,6 +526,8 @@ export class WorkforceService {
     companyId?: string | null;
     entryIds: string[];
     reason: string;
+    /** Batidas que permanecem ativas e devem receber um registro no histórico (ex.: correção do dia). */
+    relatedEntryIds?: string[];
   }): Promise<{ archivedCount: number; items: TimeEntry[] }> {
     await this.assertCanArchiveTimeEntries(input.userId, input.tenantId);
     const reason = input.reason.trim();
@@ -519,6 +554,52 @@ export class WorkforceService {
       reason
     });
 
+    for (const entry of archived) {
+      await this.repository.insertTimeEntryChangeLog({
+        tenantId: input.tenantId,
+        timeEntryId: entry.id,
+        userId: entry.userId,
+        changedBy: input.userId,
+        source: "archive",
+        previousRecordedAt: entry.recordedAt,
+        newRecordedAt: entry.recordedAt,
+        reason,
+        metadata: {
+          action: "archived",
+          entryType: entry.entryType,
+          archivedAt: entry.archivedAt
+        }
+      });
+    }
+
+    const relatedIds = Array.from(
+      new Set((input.relatedEntryIds ?? []).filter((id) => id && !uniqueIds.includes(id)))
+    ).slice(0, 20);
+    if (relatedIds.length > 0) {
+      const related = await this.repository.listTimeEntriesByIds({
+        tenantId: input.tenantId,
+        entryIds: relatedIds
+      });
+      for (const entry of related) {
+        if (entry.userId !== existing[0]?.userId) continue;
+        await this.repository.insertTimeEntryChangeLog({
+          tenantId: input.tenantId,
+          timeEntryId: entry.id,
+          userId: entry.userId,
+          changedBy: input.userId,
+          source: "archive_cleanup",
+          previousRecordedAt: entry.recordedAt,
+          newRecordedAt: entry.recordedAt,
+          reason,
+          metadata: {
+            action: "related_duplicates_archived",
+            archivedEntryIds: uniqueIds,
+            archivedCount: archived.length
+          }
+        });
+      }
+    }
+
     const primaryId = uniqueIds[0]!;
     await this.repository.insertAuditLog({
       tenantId: input.tenantId,
@@ -530,7 +611,8 @@ export class WorkforceService {
         entryIds: uniqueIds,
         reason,
         archivedCount: archived.length,
-        targetUserId: existing[0]?.userId ?? null
+        targetUserId: existing[0]?.userId ?? null,
+        relatedEntryIds: relatedIds
       }
     });
 
@@ -1895,7 +1977,11 @@ export class WorkforceService {
     allowTimePunch?: boolean;
   }): Promise<VacationPeriod> {
     await this.assertVacationAdminRole(input.userId, input.tenantId);
-    const companyId = this.requireAdminCompany(input.companyId);
+    const companyId = await this.resolveCompanyForTargetCollaborator({
+      tenantId: input.tenantId,
+      targetUserId: input.targetUserId,
+      companyId: input.companyId
+    });
 
     if (input.endDate < input.startDate) throw new Error("VACATION_INVALID_DATE_RANGE");
 
@@ -2239,14 +2325,11 @@ export class WorkforceService {
       await this.authTenantService.getTenantContext(input.userId, input.tenantId);
     }
 
-    const scopeCompanyId =
-      targetUserId === input.userId
-        ? await this.resolveEmployeeCompanyId({
-            tenantId: input.tenantId,
-            userId: input.userId,
-            companyId: input.companyId
-          })
-        : this.requireAdminCompany(input.companyId);
+    const scopeCompanyId = await this.resolveCompanyForTargetCollaborator({
+      tenantId: input.tenantId,
+      targetUserId,
+      companyId: input.companyId
+    });
 
     const rule = await this.repository.getOrCreateTenantWorkRule(input.tenantId, scopeCompanyId);
     const [shiftAssignment, employeeProfile] = await Promise.all([
@@ -2341,7 +2424,11 @@ export class WorkforceService {
       "analyst",
       "preposto"
     ]);
-    const companyId = this.requireAdminCompany(input.companyId);
+    const companyId = await this.resolveCompanyForTargetCollaborator({
+      tenantId: input.tenantId,
+      targetUserId: input.targetUserId,
+      companyId: input.companyId
+    });
     const { from, to } = getMonthRange(input.referenceMonth);
     const [summary, entries, profile] = await Promise.all([
       this.getTimeReportSummary({
@@ -2534,14 +2621,11 @@ export class WorkforceService {
     ]);
     const referenceMonth = input.referenceMonth ?? new Date().toISOString().slice(0, 7);
     const { from, to } = getMonthRange(referenceMonth);
-    const scopeCompanyId =
-      input.targetUserId === input.userId
-        ? await this.resolveEmployeeCompanyId({
-            tenantId: input.tenantId,
-            userId: input.userId,
-            companyId: input.companyId
-          })
-        : this.requireAdminCompany(input.companyId);
+    const scopeCompanyId = await this.resolveCompanyForTargetCollaborator({
+      tenantId: input.tenantId,
+      targetUserId: input.targetUserId,
+      companyId: input.companyId
+    });
     const [entries, profile, workRule, company, shiftAssignment] = await Promise.all([
       this.repository.listTimeEntriesInRange({
         tenantId: input.tenantId,

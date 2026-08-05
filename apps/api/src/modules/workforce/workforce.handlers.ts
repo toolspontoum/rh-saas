@@ -131,7 +131,8 @@ const archiveTimeEntriesSchema = z.object({
   companyId: z.string().uuid().nullable().optional(),
   userId: z.string().uuid(),
   entryIds: z.array(z.string().uuid()).min(1).max(20),
-  reason: z.string().min(3).max(2000)
+  reason: z.string().min(3).max(2000),
+  relatedEntryIds: z.array(z.string().uuid()).max(20).optional()
 });
 
 const unarchiveTimeEntriesSchema = z.object({

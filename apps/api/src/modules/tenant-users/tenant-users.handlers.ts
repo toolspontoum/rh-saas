@@ -75,6 +75,10 @@ const upsertBackofficeUserSchema = z.object({
   prepostoCompanyId: z.string().uuid().nullable().optional()
 });
 
+const updateBackofficeUserSchema = upsertBackofficeUserSchema.extend({
+  targetUserId: z.string().uuid()
+});
+
 const targetUserActionSchema = z.object({
   tenantId: z.string().uuid(),
   actorUserId: z.string().uuid(),
@@ -157,6 +161,11 @@ export class TenantUsersHandlers {
   async upsertBackofficeUser(input: unknown) {
     const payload = upsertBackofficeUserSchema.parse(input);
     return this.service.upsertBackofficeUser(payload);
+  }
+
+  async updateBackofficeUser(input: unknown) {
+    const payload = updateBackofficeUserSchema.parse(input);
+    return this.service.updateBackofficeUser(payload);
   }
 
   async resendEmployeeInvite(input: unknown) {

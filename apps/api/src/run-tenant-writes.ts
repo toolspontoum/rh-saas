@@ -76,6 +76,48 @@ export async function runTenantBackofficeUsersPost(
   }
 }
 
+/** PATCH /v1/tenants/:tenantId/backoffice-users/:targetUserId */
+export async function runTenantBackofficeUsersPatch(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  targetUserId: string,
+  body: {
+    fullName?: string;
+    email?: string;
+    role?: string;
+    cpf?: string;
+    phone?: string;
+    prepostoCompanyId?: string | null;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await tenantUsersHandlers.updateBackofficeUser({
+      tenantId,
+      actorUserId: s.userId,
+      companyId: scope.companyId ?? undefined,
+      targetUserId,
+      fullName: body.fullName,
+      email: body.email,
+      role: body.role,
+      cpf: body.cpf,
+      phone: body.phone,
+      prepostoCompanyId: body.prepostoCompanyId ?? undefined
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
 /** PUT /v1/tenants/:tenantId/employee-profile */
 export async function runTenantEmployeeProfilePut(
   authorizationHeader: string | null | undefined,
@@ -895,6 +937,112 @@ export async function runTenantUsersAccessMetaBulkPost(
       actorUserId: s.userId,
       companyId: scope.companyId ?? undefined,
       targetUserIds
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** POST /v1/tenants/:tenantId/vacations */
+export async function runTenantVacationCreatePost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  body: {
+    targetUserId?: string;
+    startDate?: string;
+    endDate?: string;
+    note?: string | null;
+    allowTimePunch?: boolean;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.createVacation({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      targetUserId: body.targetUserId,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      note: body.note ?? null,
+      allowTimePunch: body.allowTimePunch
+    });
+    return { status: 201, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** PATCH /v1/tenants/:tenantId/vacations/:vacationId */
+export async function runTenantVacationPatch(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  vacationId: string,
+  body: {
+    startDate?: string;
+    endDate?: string;
+    note?: string | null;
+    allowTimePunch?: boolean;
+  },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.updateVacation({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      vacationId,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      note: body.note,
+      allowTimePunch: body.allowTimePunch
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}
+
+/** DELETE /v1/tenants/:tenantId/vacations/:vacationId */
+export async function runTenantVacationDelete(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  vacationId: string,
+  body: { reason?: string | null },
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await workforceHandlers.deleteVacation({
+      tenantId,
+      companyId: scope.companyId ?? undefined,
+      userId: s.userId,
+      vacationId,
+      reason: body.reason ?? null
     });
     return { status: 200, body: result };
   } catch (error) {

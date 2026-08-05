@@ -1335,6 +1335,59 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** Férias: POST/PATCH/DELETE sem cold start do Express (504 ao salvar na Vercel). */
+    if (
+      segments.length >= 4 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "vacations"
+    ) {
+      const tenantVac = segments[2] ?? "";
+      const companyRawVac = req.headers["x-tenant-company-id"];
+      const xCompanyVac =
+        typeof companyRawVac === "string"
+          ? companyRawVac
+          : Array.isArray(companyRawVac)
+            ? companyRawVac[0]
+            : undefined;
+      const authVac = headerAuthorization(req);
+      const {
+        runTenantVacationCreatePost,
+        runTenantVacationPatch,
+        runTenantVacationDelete
+      } = await import("@vv/api/run-tenant-writes");
+
+      if (req.method === "POST" && segments.length === 4) {
+        const bodyVac = await readJsonBody(req);
+        const outVac = await runTenantVacationCreatePost(authVac, tenantVac, bodyVac, xCompanyVac);
+        return res.status(outVac.status).json(outVac.body);
+      }
+
+      if (req.method === "PATCH" && segments.length === 5 && segments[4]) {
+        const bodyVacPatch = await readJsonBody(req);
+        const outVacPatch = await runTenantVacationPatch(
+          authVac,
+          tenantVac,
+          segments[4],
+          bodyVacPatch,
+          xCompanyVac
+        );
+        return res.status(outVacPatch.status).json(outVacPatch.body);
+      }
+
+      if (req.method === "DELETE" && segments.length === 5 && segments[4]) {
+        const bodyVacDel = await readJsonBody(req);
+        const outVacDel = await runTenantVacationDelete(
+          authVac,
+          tenantVac,
+          segments[4],
+          bodyVacDel,
+          xCompanyVac
+        );
+        return res.status(outVacDel.status).json(outVacDel.body);
+      }
+    }
+
     const h = await getHandler();
     return h(req, res);
   } catch (e) {

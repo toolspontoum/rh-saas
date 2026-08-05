@@ -134,10 +134,22 @@ export class TenantUsersService {
     userId: string;
     companyId?: string | null;
   }): Promise<string | null> {
-    if (input.companyId) return input.companyId;
     const ctx = await this.authTenantService.getTenantContext(input.userId, input.tenantId);
     const companyPrivileged = ctx.roles.some((r) => ["owner", "admin", "manager", "analyst"].includes(r));
-    if (!companyPrivileged && ctx.prepostoCompanyId) return ctx.prepostoCompanyId;
+    // Preposto (sem papel de gestão global): sempre restrito ao contrato atribuído.
+    // Não confiar só no header — evita listar outros projetos se o escopo do cliente falhar.
+    const isPrepostoScoped = ctx.roles.includes("preposto") && !companyPrivileged;
+    if (isPrepostoScoped) {
+      const allowed =
+        ctx.prepostoCompanyId ??
+        (await this.repository.getTenantUserCompanyId(input.tenantId, input.userId));
+      if (!allowed) throw new Error("PREPOSTO_COMPANY_REQUIRED");
+      if (input.companyId && input.companyId !== allowed) {
+        throw new Error("PREPOSTO_SCOPE_MISMATCH");
+      }
+      return allowed;
+    }
+    if (input.companyId) return input.companyId;
     if (companyPrivileged) return null;
     return this.repository.getTenantUserCompanyId(input.tenantId, input.userId);
   }
@@ -960,6 +972,163 @@ export class TenantUsersService {
     });
 
     const linked = await this.repository.getUserInTenant(input.tenantId, targetUserId, companyId);
+    if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
+    return linked;
+  }
+
+  async updateBackofficeUser(input: {
+    tenantId: string;
+    actorUserId: string;
+    companyId?: string | null;
+    targetUserId: string;
+    fullName: string;
+    email: string;
+    role: AppRole;
+    cpf?: string;
+    phone?: string;
+    prepostoCompanyId?: string | null;
+  }): Promise<TenantUser> {
+    const existing = await this.repository.getUserInTenant(input.tenantId, input.targetUserId);
+    if (!existing) throw new Error("TARGET_USER_NOT_IN_TENANT");
+    if (existing.roles.includes("owner")) throw new Error("CANNOT_EDIT_OWNER_USER");
+
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedCpf = input.cpf?.replace(/\D/g, "") || undefined;
+    const normalizedPhone = input.phone?.trim() || undefined;
+    const fullName = input.fullName.trim();
+
+    if (input.role === "preposto") {
+      await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, [
+        "owner",
+        "admin",
+        "manager"
+      ]);
+      const targetCompany =
+        (input.prepostoCompanyId && String(input.prepostoCompanyId).trim()) ||
+        (input.companyId && String(input.companyId).trim()) ||
+        existing.companyId ||
+        null;
+      if (!targetCompany) throw new Error("PREPOSTO_PROJECT_REQUIRED");
+      const okCo = await this.repository.companyBelongsToTenant(input.tenantId, targetCompany);
+      if (!okCo) throw new Error("TENANT_COMPANY_NOT_FOUND");
+
+      const currentEmail = (existing.email ?? "").trim().toLowerCase();
+      if (normalizedEmail && normalizedEmail !== currentEmail) {
+        const otherId = await this.repository.findUserIdByEmail(normalizedEmail);
+        if (otherId && otherId !== input.targetUserId) throw new Error("EMAIL_ALREADY_IN_USE");
+        await this.repository.updateAuthUserEmail(input.targetUserId, normalizedEmail);
+      }
+
+      await this.repository.updateBackofficeProfileFields({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        companyId: targetCompany,
+        fullName,
+        email: normalizedEmail,
+        cpf: normalizedCpf ?? null,
+        phone: normalizedPhone ?? null
+      });
+
+      await this.tenantCompaniesService.clearPrepostoAssignmentsForUser({
+        userId: input.actorUserId,
+        tenantId: input.tenantId,
+        targetUserId: input.targetUserId
+      });
+
+      await this.repository.syncExclusiveBackofficeRole({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        role: "preposto"
+      });
+
+      await this.repository.ensureEmployeeRole(input.tenantId, input.targetUserId);
+      await this.repository.ensureOpenCompanyLink({
+        tenantId: input.tenantId,
+        userId: input.targetUserId,
+        companyId: targetCompany,
+        reason: "Atualizacao de preposto (gestao)",
+        actorUserId: input.actorUserId
+      });
+
+      await this.tenantCompaniesService.setPreposto({
+        userId: input.actorUserId,
+        tenantId: input.tenantId,
+        companyId: targetCompany,
+        prepostoUserId: input.targetUserId
+      });
+
+      await this.repository.insertAuditLog({
+        tenantId: input.tenantId,
+        companyId: targetCompany,
+        actorUserId: input.actorUserId,
+        action: "tenant.backoffice_user.updated",
+        resourceType: "tenant_user",
+        resourceId: input.targetUserId,
+        result: "success",
+        metadata: { role: "preposto", email: normalizedEmail }
+      });
+
+      const linked = await this.repository.getUserInTenant(input.tenantId, input.targetUserId, targetCompany);
+      if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
+      return linked;
+    }
+
+    await this.authTenantService.assertUserHasAnyRole(input.actorUserId, input.tenantId, ["owner", "admin"]);
+
+    const allowedRoles = new Set<AppRole>(["admin", "manager", "analyst"]);
+    if (!allowedRoles.has(input.role)) throw new Error("INVALID_BACKOFFICE_ROLE");
+
+    const companyId =
+      existing.companyId ??
+      (await this.resolveBackofficeProfileCompanyId({
+        tenantId: input.tenantId,
+        scopeCompanyId: input.companyId
+      }));
+
+    const currentEmail = (existing.email ?? "").trim().toLowerCase();
+    if (normalizedEmail && normalizedEmail !== currentEmail) {
+      const otherId = await this.repository.findUserIdByEmail(normalizedEmail);
+      if (otherId && otherId !== input.targetUserId) throw new Error("EMAIL_ALREADY_IN_USE");
+      await this.repository.updateAuthUserEmail(input.targetUserId, normalizedEmail);
+    }
+
+    // Sai do papel de preposto se estava vinculado a contratos.
+    if (existing.roles.includes("preposto")) {
+      await this.tenantCompaniesService.clearPrepostoAssignmentsForUser({
+        userId: input.actorUserId,
+        tenantId: input.tenantId,
+        targetUserId: input.targetUserId
+      });
+    }
+
+    await this.repository.updateBackofficeProfileFields({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      companyId,
+      fullName,
+      email: normalizedEmail,
+      cpf: normalizedCpf ?? null,
+      phone: normalizedPhone ?? null
+    });
+
+    await this.repository.syncExclusiveBackofficeRole({
+      tenantId: input.tenantId,
+      userId: input.targetUserId,
+      role: input.role
+    });
+
+    await this.repository.insertAuditLog({
+      tenantId: input.tenantId,
+      companyId,
+      actorUserId: input.actorUserId,
+      action: "tenant.backoffice_user.updated",
+      resourceType: "tenant_user",
+      resourceId: input.targetUserId,
+      result: "success",
+      metadata: { role: input.role, email: normalizedEmail }
+    });
+
+    const linked = await this.repository.getUserInTenant(input.tenantId, input.targetUserId, companyId);
     if (!linked) throw new Error("TARGET_USER_NOT_IN_TENANT");
     return linked;
   }

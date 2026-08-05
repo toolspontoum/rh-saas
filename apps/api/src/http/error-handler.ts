@@ -256,6 +256,14 @@ const knownErrors = new Map<string, ApiErrorShape>([
     }
   ],
   [
+    "CANNOT_EDIT_OWNER_USER",
+    {
+      status: 403,
+      code: "CANNOT_EDIT_OWNER_USER",
+      message: "Nao e permitido editar o utilizador owner por esta tela."
+    }
+  ],
+  [
     "PREPOSTO_PROJECT_REQUIRED",
     {
       status: 400,
@@ -278,6 +286,15 @@ const knownErrors = new Map<string, ApiErrorShape>([
       code: "PREPOSTO_COMPANY_HEADER_REQUIRED",
       message:
         "Este utilizador e preposto de varios projetos. Selecione a empresa/projeto no painel ou envie o header X-Tenant-Company-Id."
+    }
+  ],
+  [
+    "PREPOSTO_COMPANY_REQUIRED",
+    {
+      status: 400,
+      code: "PREPOSTO_COMPANY_REQUIRED",
+      message:
+        "Preposto sem contrato atribuido. Vincule o utilizador como preposto de uma empresa/projeto ou defina a empresa no perfil."
     }
   ],
   ["USER_INVITE_FAILED", { status: 500, code: "USER_INVITE_FAILED", message: "Nao foi possivel criar/enviar convite para o usuario." }],

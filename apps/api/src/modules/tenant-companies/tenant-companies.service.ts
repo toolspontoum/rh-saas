@@ -144,4 +144,18 @@ export class TenantCompaniesService {
 
     return mapRow(row);
   }
+
+  /** Remove o utilizador de todos os contratos em que era preposto e, se não restar vínculo, remove o papel. */
+  async clearPrepostoAssignmentsForUser(input: {
+    userId: string;
+    tenantId: string;
+    targetUserId: string;
+  }): Promise<void> {
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, ["owner", "admin", "manager"]);
+    await this.repository.clearPrepostoAssignmentsForUser(input.tenantId, input.targetUserId);
+    const remaining = await this.repository.countPrepostoAssignmentsForUser(input.tenantId, input.targetUserId);
+    if (remaining === 0) {
+      await this.repository.deletePrepostoRole(input.tenantId, input.targetUserId);
+    }
+  }
 }

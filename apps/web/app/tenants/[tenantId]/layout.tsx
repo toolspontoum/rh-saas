@@ -137,6 +137,18 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
         .then((rows) => {
           if (cancelled) return;
           setCompanies(rows);
+          const forcedPreposto =
+            isPreposto &&
+            !isSupervisor &&
+            context.prepostoCompanyId &&
+            rows.some((item) => item.id === context.prepostoCompanyId)
+              ? context.prepostoCompanyId
+              : null;
+          if (forcedPreposto) {
+            setSelectedCompanyId(forcedPreposto);
+            setStoredTenantCompanyId(tenantId, forcedPreposto);
+            return;
+          }
           const stored = getStoredTenantCompanyId(tenantId);
           const storedOk = Boolean(stored && rows.some((item) => item.id === stored));
           if (storedOk && stored) {

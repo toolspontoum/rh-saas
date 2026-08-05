@@ -142,6 +142,16 @@ const entryLabel: Record<PunchAction, string> = {
 };
 
 const COLLABORATORS_PAGE_SIZE = 15;
+/** Limite do `listUsers` na API (`pageSize` max 250). */
+const USERS_API_PAGE_SIZE = 250;
+
+/** Busca: minúsculas + sem acentos (ex.: "jos" encontra "José"). */
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
 
 type CollaboratorSortColumn = "fullName" | "email" | "cpf" | "positionTitle";
 type RecordSortColumn =
@@ -250,38 +260,101 @@ function lastEntryOf(entries: TimeEntry[]): TimeEntry | null {
   return last;
 }
 
+/** Data civil em America/Sao_Paulo (YYYY-MM-DD), alinhada ao backend/folha. */
+function civilDateInSaoPaulo(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(iso));
+}
+
+/**
+ * Agrupa batidas em jornadas.
+ * - Novo `clock_in` inicia ciclo, exceto se já houver ciclo aberto no mesmo dia civil
+ *   (evita linhas quebradas quando há batida duplicada / correção + selfie).
+ * - `clock_out` extra no mesmo dia funde na última linha daquele dia.
+ * - Demais batidas órfãs tentam anexar à última linha do mesmo dia.
+ */
 function groupRows(entries: TimeEntry[]): WorkRow[] {
-  const sorted = [...entries].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+  const sorted = [...entries].sort(
+    (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
+  );
   const rows: WorkRow[] = [];
   let current: WorkRow | null = null;
 
+  function lastRowSameDay(userId: string, day: string): WorkRow | null {
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const row = rows[i]!;
+      if (row.userId === userId && row.baseDate === day) return row;
+    }
+    return null;
+  }
+
   for (const entry of sorted) {
+    const day = civilDateInSaoPaulo(entry.recordedAt);
+
     if (entry.entryType === "clock_in") {
+      if (current && current.userId === entry.userId && current.baseDate === day && !current.clockOut) {
+        // Já há jornada aberta no mesmo dia: ignora clock_in duplicado na UI.
+        continue;
+      }
       if (current) rows.push(current);
       current = {
         key: `${entry.userId}-${entry.recordedAt}`,
         userId: entry.userId,
-        baseDate: entry.recordedAt.slice(0, 10),
+        baseDate: day,
         clockIn: entry
       };
       continue;
     }
 
-    if (!current) {
-      current = {
+    if (entry.entryType === "clock_out") {
+      if (current && current.userId === entry.userId) {
+        current.clockOut = entry;
+        rows.push(current);
+        current = null;
+        continue;
+      }
+      const sameDay = lastRowSameDay(entry.userId, day);
+      if (sameDay) {
+        const prevOut = sameDay.clockOut?.recordedAt;
+        if (!prevOut || entry.recordedAt >= prevOut) {
+          sameDay.clockOut = entry;
+        }
+        continue;
+      }
+      rows.push({
         key: `${entry.userId}-${entry.recordedAt}`,
         userId: entry.userId,
-        baseDate: entry.recordedAt.slice(0, 10)
-      };
+        baseDate: day,
+        clockOut: entry
+      });
+      continue;
     }
 
+    // lunch_out / lunch_in
+    if (current && current.userId === entry.userId) {
+      if (entry.entryType === "lunch_out") current.lunchOut = entry;
+      if (entry.entryType === "lunch_in") current.lunchIn = entry;
+      continue;
+    }
+
+    const sameDay = lastRowSameDay(entry.userId, day);
+    if (sameDay && !sameDay.clockOut) {
+      if (entry.entryType === "lunch_out") sameDay.lunchOut = entry;
+      if (entry.entryType === "lunch_in") sameDay.lunchIn = entry;
+      continue;
+    }
+
+    current = {
+      key: `${entry.userId}-${entry.recordedAt}`,
+      userId: entry.userId,
+      baseDate: day
+    };
     if (entry.entryType === "lunch_out") current.lunchOut = entry;
     if (entry.entryType === "lunch_in") current.lunchIn = entry;
-    if (entry.entryType === "clock_out") {
-      current.clockOut = entry;
-      rows.push(current);
-      current = null;
-    }
   }
 
   if (current) rows.push(current);
@@ -458,9 +531,18 @@ export default function TimeRegisterPage() {
   const canArchive = roles.some((role) => ["owner", "admin", "manager", "preposto"].includes(role));
 
   function workRowEntryIds(row: WorkRow): string[] {
-    return [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(
+    const fromColumns = [row.clockIn?.id, row.lunchOut?.id, row.lunchIn?.id, row.clockOut?.id].filter(
       (v): v is string => Boolean(v)
     );
+    const sameDayExtras = entries
+      .filter(
+        (e) =>
+          e.userId === row.userId &&
+          civilDateInSaoPaulo(e.recordedAt) === row.baseDate &&
+          !fromColumns.includes(e.id)
+      )
+      .map((e) => e.id);
+    return [...fromColumns, ...sameDayExtras];
   }
 
   const rows = useMemo(() => {
@@ -512,8 +594,11 @@ export default function TimeRegisterPage() {
       if (tagFilter !== "all" && !(profile?.employeeTags ?? []).includes(tagFilter)) return false;
 
       if (!userSearch.trim()) return true;
-      const haystack = `${profile?.fullName ?? u.fullName ?? ""} ${u.email ?? ""} ${profile?.cpf ?? u.cpf ?? ""}`.toLowerCase();
-      return haystack.includes(userSearch.trim().toLowerCase());
+      const needle = normalizeSearchText(userSearch.trim());
+      const haystack = normalizeSearchText(
+        `${profile?.fullName ?? u.fullName ?? ""} ${u.email ?? ""} ${profile?.cpf ?? u.cpf ?? ""}`
+      );
+      return haystack.includes(needle);
     });
   }, [users, employeeProfiles, departmentFilter, positionFilter, contractFilter, statusFilter, tagFilter, userSearch]);
 
@@ -875,48 +960,72 @@ export default function TimeRegisterPage() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadCollaboratorDirectory(isManager: boolean) {
+      if (!isManager) return;
+      setUsersLoading(true);
+      setError(null);
+      try {
+        const allUsers: TenantUser[] = [];
+        for (let page = 1; page <= 40; page += 1) {
+          const usersRes = await apiFetch<Paginated<TenantUser>>(
+            `/v1/tenants/${tenantId}/users?page=${page}&pageSize=${USERS_API_PAGE_SIZE}&includeAuthMeta=false`
+          );
+          const batch = usersRes.items ?? [];
+          allUsers.push(...batch);
+          if (batch.length < USERS_API_PAGE_SIZE) break;
+        }
+        if (cancelled) return;
+
+        const bulk = await fetchEmployeeProfilesBulk(
+          tenantId,
+          allUsers.map((u) => u.userId)
+        );
+        if (cancelled) return;
+
+        const nextProfiles: Record<string, EmployeeProfile> = {};
+        for (const user of allUsers) {
+          const b = bulk[user.userId];
+          if (!b) continue;
+          nextProfiles[user.userId] = {
+            fullName: b.fullName ?? user.fullName,
+            cpf: b.cpf ?? user.cpf,
+            department: b.department,
+            positionTitle: b.positionTitle,
+            contractType: b.contractType,
+            status: b.status,
+            employeeTags: b.employeeTags
+          };
+        }
+        setEmployeeProfiles(nextProfiles);
+        const employeeUsers = allUsers.filter(
+          (user) => user.roles.includes("employee") || Boolean(nextProfiles[user.userId])
+        );
+        setUsers(employeeUsers);
+        const defaultUser =
+          employeeUsers.find((user) => user.userId === selectedUserIdFromQuery)?.userId ??
+          employeeUsers[0]?.userId ??
+          "";
+        setSelectedUserId(defaultUser);
+        if (detailMode || selectedUserIdFromQuery) {
+          await loadData(defaultUser || selectedUserIdFromQuery || undefined, true);
+        }
+      } finally {
+        if (!cancelled) setUsersLoading(false);
+      }
+    }
+
     apiFetch<Context>(`/v1/tenants/${tenantId}/context`)
       .then(async (ctx) => {
+        if (cancelled) return;
         setRoles(ctx.roles);
         const isManager = ctx.roles.some((role) =>
           ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
         );
 
         if (isManager) {
-          setUsersLoading(true);
-          setError(null);
-          const usersRes = await apiFetch<Paginated<TenantUser>>(
-            `/v1/tenants/${tenantId}/users?page=1&pageSize=100&includeAuthMeta=false`
-          );
-          const allUsers = usersRes.items ?? [];
-          const bulk = await fetchEmployeeProfilesBulk(
-            tenantId,
-            allUsers.map((u) => u.userId)
-          );
-          const nextProfiles: Record<string, EmployeeProfile> = {};
-          for (const user of allUsers) {
-            const b = bulk[user.userId];
-            if (!b) continue;
-            nextProfiles[user.userId] = {
-              fullName: b.fullName ?? user.fullName,
-              cpf: b.cpf ?? user.cpf,
-              department: b.department,
-              positionTitle: b.positionTitle,
-              contractType: b.contractType,
-              status: b.status,
-              employeeTags: b.employeeTags
-            };
-          }
-          setEmployeeProfiles(nextProfiles);
-          const employeeUsers = allUsers.filter((user) => user.roles.includes("employee") || Boolean(nextProfiles[user.userId]));
-          setUsers(employeeUsers);
-          const defaultUser =
-            employeeUsers.find((user) => user.userId === selectedUserIdFromQuery)?.userId ?? employeeUsers[0]?.userId ?? "";
-          setSelectedUserId(defaultUser);
-          if (detailMode || selectedUserIdFromQuery) {
-            await loadData(defaultUser || selectedUserIdFromQuery || undefined, true);
-          }
-          setUsersLoading(false);
+          await loadCollaboratorDirectory(true);
           return;
         }
 
@@ -927,15 +1036,41 @@ export default function TimeRegisterPage() {
             // Mantém fluxo: o pedido será repetido ao registrar ponto ou ao voltar ao separador.
           }
         }
-        return;
       })
       .catch((err: Error) => {
+        if (cancelled) return;
         setUsersLoading(false);
         // Sem empresa/projeto selecionado, alguns endpoints podem devolver COMPANY_SCOPE_REQUIRED.
         // O comportamento esperado aqui é manter a tela aberta (modo "Todos") sem bloquear com erro.
         if ((err.message ?? "").includes("Selecione a empresa/projeto no painel")) return;
         setError(err.message);
       });
+
+    const onCompanyChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ tenantId?: string }>).detail;
+      if (detail?.tenantId && detail.tenantId !== tenantId) return;
+      void apiFetch<Context>(`/v1/tenants/${tenantId}/context`)
+        .then(async (ctx) => {
+          if (cancelled) return;
+          setRoles(ctx.roles);
+          const isManager = ctx.roles.some((role) =>
+            ["owner", "admin", "manager", "analyst", "preposto"].includes(role)
+          );
+          if (isManager) await loadCollaboratorDirectory(true);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          setUsersLoading(false);
+          if ((err.message ?? "").includes("Selecione a empresa/projeto no painel")) return;
+          setError(err.message);
+        });
+    };
+    window.addEventListener("vv-tenant-company-changed", onCompanyChanged);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("vv-tenant-company-changed", onCompanyChanged);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -1511,18 +1646,33 @@ export default function TimeRegisterPage() {
       clock_out: editingRow.clockOut
     };
 
+    const sameDayEntries = entries.filter(
+      (e) => e.userId === selectedUserId && civilDateInSaoPaulo(e.recordedAt) === editingRow.baseDate
+    );
+
+    function findExistingForType(type: PunchAction, preferred?: TimeEntry): TimeEntry | undefined {
+      if (preferred) return preferred;
+      const sameType = sameDayEntries
+        .filter((e) => e.entryType === type)
+        .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+      if (type === "clock_out") return sameType[sameType.length - 1];
+      return sameType[0];
+    }
+
     const patchOps: Array<{ id: string; value: string }> = [];
     const createOps: Array<{ type: PunchAction; at: string }> = [];
+    const keptIds = new Set<string>();
 
     for (const key of Object.keys(map) as PunchAction[]) {
-      const entry = map[key];
       const raw = editingValues[key]?.trim();
       if (!raw) continue;
       const iso = fromLocalInput(raw);
-      if (entry) {
-        const currentValue = toLocalInput(entry.recordedAt);
+      const existing = findExistingForType(key, map[key]);
+      if (existing) {
+        keptIds.add(existing.id);
+        const currentValue = toLocalInput(existing.recordedAt);
         if (raw !== currentValue) {
-          patchOps.push({ id: entry.id, value: iso });
+          patchOps.push({ id: existing.id, value: iso });
         }
       } else {
         createOps.push({ type: key, at: iso });
@@ -1553,7 +1703,7 @@ export default function TimeRegisterPage() {
       const sortedCreates = [...createOps].sort((a, b) => a.at.localeCompare(b.at));
       const noteBase = editReason.trim() || "Inclusão manual de batidas pelo gestor.";
       for (const c of sortedCreates) {
-        await apiFetch<TimeEntry>(`/v1/tenants/${tenantId}/time-entries`, {
+        const created = await apiFetch<TimeEntry>(`/v1/tenants/${tenantId}/time-entries`, {
           method: "POST",
           body: JSON.stringify({
             targetUserId: selectedUserId,
@@ -1562,6 +1712,24 @@ export default function TimeRegisterPage() {
             source: "admin_manual",
             contract: targetProfile?.contractType ?? null,
             note: noteBase.slice(0, 1000)
+          })
+        });
+        if (created?.id) keptIds.add(created.id);
+      }
+
+      // Arquiva batidas do mesmo dia que ficaram fora da correção (duplicatas / órfãs).
+      const orphanIds = sameDayEntries.map((e) => e.id).filter((id) => !keptIds.has(id));
+      if (orphanIds.length > 0) {
+        await apiFetch(`/v1/tenants/${tenantId}/time-entries/archive`, {
+          method: "POST",
+          body: JSON.stringify({
+            entryIds: orphanIds,
+            relatedEntryIds: Array.from(keptIds),
+            reason:
+              (editReason.trim() || "Correção de ponto: remoção de batidas duplicadas/órfãs do mesmo dia").slice(
+                0,
+                1000
+              )
           })
         });
       }
