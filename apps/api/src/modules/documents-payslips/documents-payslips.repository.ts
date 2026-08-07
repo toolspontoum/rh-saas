@@ -759,6 +759,43 @@ export class DocumentsPayslipsRepository {
     return { id: row.id, tenantId: row.tenant_id };
   }
 
+  /** Reencaminha itens presos em `processing` (job serverless morto a meio). */
+  async requeueStaleProcessingPayslips(olderThanMinutes = 15): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
+    const { data, error } = await this.db
+      .from("payslips")
+      .update({
+        ai_link_status: "queued",
+        ai_link_error: null
+      })
+      .eq("ai_link_status", "processing")
+      .lt("updated_at", cutoff)
+      .select("id");
+    if (error) throw error;
+    return (data ?? []).length;
+  }
+
+  /** Reencaminha falhas/presos do lote para a fila (não altera já vinculados). */
+  async requeuePayslipAiBatch(input: {
+    tenantId: string;
+    companyId?: string | null;
+    batchId: string;
+  }): Promise<number> {
+    let q = this.db
+      .from("payslips")
+      .update({
+        ai_link_status: "queued",
+        ai_link_error: null
+      })
+      .eq("tenant_id", input.tenantId)
+      .eq("batch_id", input.batchId)
+      .in("ai_link_status", ["failed", "processing"]);
+    if (input.companyId) q = q.eq("company_id", input.companyId);
+    const { data, error } = await q.select("id");
+    if (error) throw error;
+    return (data ?? []).length;
+  }
+
   async findEmployeeContextByCpf(
     tenantId: string,
     companyId: string,
@@ -769,16 +806,25 @@ export class DocumentsPayslipsRepository {
     personalEmail: string | null;
     authEmail: string | null;
   } | null> {
-    const { data, error } = await this.db
-      .from("tenant_user_profiles")
-      .select("user_id, full_name, cpf, personal_email")
-      .eq("tenant_id", tenantId)
-      .eq("company_id", companyId)
-      .not("cpf", "is", null);
-    if (error) throw error;
-    const row = (data ?? []).find(
-      (r) => String((r as { cpf: string | null }).cpf ?? "").replace(/\D/g, "") === digits
-    ) as { user_id: string; full_name: string | null; personal_email: string | null } | undefined;
+    const matchRow = async (scopedCompanyId: string | null) => {
+      let q = this.db
+        .from("tenant_user_profiles")
+        .select("user_id, full_name, cpf, personal_email")
+        .eq("tenant_id", tenantId)
+        .not("cpf", "is", null);
+      if (scopedCompanyId) q = q.eq("company_id", scopedCompanyId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []).find(
+        (r) => String((r as { cpf: string | null }).cpf ?? "").replace(/\D/g, "") === digits
+      ) as { user_id: string; full_name: string | null; personal_email: string | null } | undefined;
+    };
+
+    let row = await matchRow(companyId);
+    // Fallback tenant-wide: holerite pode ter company_id do lote diferente do perfil.
+    if (!row?.user_id) {
+      row = await matchRow(null);
+    }
     if (!row?.user_id) return null;
     const { data: authData, error: authError } = await this.db.auth.admin.getUserById(row.user_id);
     if (authError) throw authError;

@@ -732,6 +732,37 @@ export class DocumentsPayslipsService {
     return { batch, items };
   }
 
+  async requeuePayslipAiBatch(input: {
+    userId: string;
+    tenantId: string;
+    companyId?: string | null;
+    batchId: string;
+  }): Promise<{ ok: true; requeued: number }> {
+    await this.authTenantService.assertFeatureEnabled(input.userId, input.tenantId, "mod_payslips");
+    await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
+      "owner",
+      "admin",
+      "manager"
+    ]);
+    const batch = await this.repository.findPayslipBatchById({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      batchId: input.batchId
+    });
+    if (!batch) {
+      throw new Error("PAYSLIP_BATCH_NOT_FOUND");
+    }
+    const requeued = await this.repository.requeuePayslipAiBatch({
+      tenantId: input.tenantId,
+      companyId: input.companyId,
+      batchId: input.batchId
+    });
+    void import("../ai/schedule.js")
+      .then((m) => m.kickPayslipAiLinkQueue())
+      .catch((err) => console.error("[ai] kick payslip queue after requeue failed", err));
+    return { ok: true, requeued };
+  }
+
   async confirmAiBulkPayslipEnqueue(input: {
     userId: string;
     tenantId: string;

@@ -8,6 +8,7 @@ import { Pin, PinOff } from "lucide-react";
 
 import { clearToken, getToken } from "../../../lib/auth";
 import { apiFetch } from "../../../lib/api";
+import { PLATFORM_NAME } from "../../../lib/brand";
 import { formatRoleList } from "../../../lib/role-labels";
 import {
   getStoredTenantCompanyId,
@@ -331,7 +332,7 @@ export default function TenantLayout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-title">VV Consulting</div>
+        <div className="sidebar-title">{PLATFORM_NAME}</div>
         <div className="tenant-id">Chave de assinatura: {tenantId}</div>
         {roles.length > 0 ? <div className="muted small">Perfis: {formatRoleList(roles)}</div> : null}
 

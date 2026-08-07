@@ -85,3 +85,30 @@ export async function runPayslipConfirmAiBulkPost(
     return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
   }
 }
+
+export async function runPayslipBatchRequeueAiPost(
+  authorizationHeader: string | null | undefined,
+  tenantId: string,
+  batchId: string,
+  xTenantCompanyId: string | null | undefined
+): Promise<JsonHttpResult> {
+  const s = await getBearerSession(authorizationHeader);
+  if (!s.ok) return { status: s.status, body: s.body };
+  const scope = await resolveCompanyScopeFromHeader(tenantId, xTenantCompanyId, {
+    authorizationHeader,
+    actorUserId: s.userId
+  });
+  if (!scope.ok) return { status: scope.status, body: scope.body };
+  try {
+    const result = await documentsPayslipsHandlers.requeuePayslipAiBatch({
+      userId: s.userId,
+      tenantId,
+      companyId: scope.companyId,
+      batchId
+    });
+    return { status: 200, body: result };
+  } catch (error) {
+    const parsed = toHttpError(error);
+    return { status: parsed.status, body: { error: parsed.code, message: parsed.message } };
+  }
+}

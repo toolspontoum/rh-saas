@@ -27,7 +27,7 @@ Este documento descreve o fluxo de upload de selfies no registro de ponto e a li
 
 - **URL**: `POST /api/v1/jobs/time-selfies-cleanup`
 - **Auth**:
-  - `VV_CRON_HTTP_SECRET` deve estar configurado no ambiente
+  - `NEXOR_CRON_HTTP_SECRET` (ou legado `VV_CRON_HTTP_SECRET`) / `CRON_SECRET` deve estar configurado no ambiente
   - Envie o segredo via `x-vv-cron-secret: <segredo>` **ou** `Authorization: Bearer <segredo>`
 - **Resposta**:
   - `202 { ok: true, accepted: true }`

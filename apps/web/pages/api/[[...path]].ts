@@ -843,6 +843,33 @@ export default async function api(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    /** POST /v1/tenants/:tenantId/payslips/batches/:batchId/requeue-ai */
+    if (
+      req.method === "POST" &&
+      segments.length === 7 &&
+      segments[0] === "v1" &&
+      segments[1] === "tenants" &&
+      segments[3] === "payslips" &&
+      segments[4] === "batches" &&
+      segments[6] === "requeue-ai"
+    ) {
+      const companyRawRq = req.headers["x-tenant-company-id"];
+      const xCompanyRq =
+        typeof companyRawRq === "string"
+          ? companyRawRq
+          : Array.isArray(companyRawRq)
+            ? companyRawRq[0]
+            : undefined;
+      const { runPayslipBatchRequeueAiPost } = await import("@vv/api/run-payslips-ai-vercel");
+      const outRq = await runPayslipBatchRequeueAiPost(
+        headerAuthorization(req),
+        segments[2] ?? "",
+        segments[5] ?? "",
+        xCompanyRq
+      );
+      return res.status(outRq.status).json(outRq.body);
+    }
+
     /** POST /v1/tenants/:tenantId/features/:featureCode/validate — usado ao abrir módulos no painel. */
     if (
       req.method === "POST" &&

@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { PLATFORM_NAME, PLATFORM_TAGLINE } from "../../lib/brand";
 import { getPublicWebUrl } from "../../lib/public-web-url";
 import { setToken } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
@@ -190,8 +191,8 @@ export default function SignUpPage() {
       </section>
 
       <section className="auth-right">
-        <div className="auth-brand-mark">VV Consulting</div>
-        <p className="auth-brand-subtitle">Gestão de pessoas, operação e recrutamento em um único ecossistema.</p>
+        <div className="auth-brand-mark">{PLATFORM_NAME}</div>
+        <p className="auth-brand-subtitle">{PLATFORM_TAGLINE}</p>
         <div className="auth-visual" />
       </section>
     </main>

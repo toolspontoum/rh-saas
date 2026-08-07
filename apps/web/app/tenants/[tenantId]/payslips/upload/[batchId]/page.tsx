@@ -33,7 +33,7 @@ const AI_ERR_HINTS: Record<string, string> = {
   AI_PROVIDER_DISABLED: "IA desativada para este assinante.",
   PDF_DOWNLOAD_FAILED: "Não foi possível ler o arquivo no armazenamento.",
   CPF_NOT_FOUND: "CPF não encontrado no PDF.",
-  EMPLOYEE_NOT_FOUND_FOR_CPF: "Não há colaborador com este CPF neste projeto."
+  EMPLOYEE_NOT_FOUND_FOR_CPF: "Não há colaborador com este CPF no cadastro do assinante."
 };
 
 function formatRefMonth(ym: string): string {
@@ -63,7 +63,9 @@ export default function PayslipBatchDetailPage() {
 
   const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [requeueing, setRequeueing] = useState(false);
 
   const loadDetail = useCallback(async () => {
     setError(null);
@@ -95,6 +97,35 @@ export default function PayslipBatchDetailPage() {
   }, [needsPoll, loadDetail]);
 
   const batchTitle = data?.batch.title?.trim() || "Sem título";
+  const failedOrStuckCount = useMemo(
+    () =>
+      (data?.items ?? []).filter(
+        (i) => i.aiLinkStatus === "failed" || i.aiLinkStatus === "processing"
+      ).length,
+    [data?.items]
+  );
+
+  async function requeueFailed() {
+    setRequeueing(true);
+    setError(null);
+    setOkMsg(null);
+    try {
+      const res = await apiFetch<{ ok: true; requeued: number }>(
+        `/v1/tenants/${tenantId}/payslips/batches/${batchId}/requeue-ai`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      setOkMsg(
+        res.requeued > 0
+          ? `${res.requeued} arquivo(s) reenviado(s) para a fila de IA.`
+          : "Nenhum arquivo pendente de reprocessamento."
+      );
+      await loadDetail();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRequeueing(false);
+    }
+  }
 
   return (
     <main className="container wide stack" style={{ margin: 0 }}>
@@ -109,11 +140,18 @@ export default function PayslipBatchDetailPage() {
 
       <div className="section-header">
         <h1>{batchTitle}</h1>
-        <Link href={`/tenants/${tenantId}/payslips/upload`}>
-          <button type="button" className="secondary">
-            Voltar aos lotes
-          </button>
-        </Link>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {failedOrStuckCount > 0 ? (
+            <button type="button" onClick={() => void requeueFailed()} disabled={requeueing}>
+              {requeueing ? "Reenfileirando…" : `Reprocessar falhas (${failedOrStuckCount})`}
+            </button>
+          ) : null}
+          <Link href={`/tenants/${tenantId}/payslips/upload`}>
+            <button type="button" className="secondary">
+              Voltar aos lotes
+            </button>
+          </Link>
+        </div>
       </div>
 
       {data?.batch ? (
@@ -125,6 +163,7 @@ export default function PayslipBatchDetailPage() {
       ) : null}
 
       {error ? <p className="error">{error}</p> : null}
+      {okMsg ? <p className="muted">{okMsg}</p> : null}
 
       <div className="card table-wrap">
         {loading ? (
