@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { clearToken } from "../../lib/auth";
+import { PLATFORM_NAME } from "../../lib/brand";
 import { supabase } from "../../lib/supabase";
 
 const links = [
@@ -23,7 +24,7 @@ export default function CandidateLayout({ children }: { children: ReactNode }) {
       <aside className="sidebar">
         <div className="candidate-sidebar-header">
           <div className="sidebar-title">Portal do Candidato</div>
-          <div className="muted small">VV Consulting</div>
+          <div className="muted small">{PLATFORM_NAME}</div>
         </div>
 
         <nav className="nav stack candidate-sidebar-nav">

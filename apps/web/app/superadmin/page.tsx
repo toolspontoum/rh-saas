@@ -489,8 +489,8 @@ export default function SuperadminPage() {
       <section className="card stack">
         <h2>Novo assinante (empresa)</h2>
         <p className="muted small">
-          O slug público é gerado automaticamente a partir do nome (ex.: &quot;VV Consulting&quot; →{" "}
-          <code>vv-consulting</code>).
+          O slug público é gerado automaticamente a partir do nome (ex.: &quot;Acme RH&quot; →{" "}
+          <code>acme-rh</code>).
         </p>
         <form className="stack" onSubmit={onCreateTenant}>
           <label>

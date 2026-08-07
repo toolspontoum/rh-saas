@@ -426,13 +426,16 @@ export class WorkforceService {
       throw new Error("VACATION_BLOCKS_TIME_ENTRY");
     }
 
-    const lastEntry = await this.repository.getLastTimeEntryBefore({
-      tenantId: input.tenantId,
-      userId: subjectUserId,
-      companyId,
-      beforeRecordedAt: input.recordedAt
-    });
-    validateTimeEntrySequence(lastEntry?.entryType ?? null, input.entryType);
+    // Correções (manual/retroativo) não seguem a regra de ciclo do ponto ao vivo.
+    if (!isCorrectionTimeEntrySource(input.source)) {
+      const lastEntry = await this.repository.getLastTimeEntryBefore({
+        tenantId: input.tenantId,
+        userId: subjectUserId,
+        companyId,
+        beforeRecordedAt: input.recordedAt
+      });
+      validateTimeEntrySequence(lastEntry?.entryType ?? null, input.entryType);
+    }
     const created = await this.repository.createTimeEntry({
       tenantId: input.tenantId,
       companyId,
@@ -932,9 +935,9 @@ export class WorkforceService {
     const createdEntryIds: string[] = [];
 
     if (input.status === "approved" && existing.isRetroactive) {
-      // Aprovação de pedido retroativo: cria todas as batidas previstas
-      // em `retro_entries`, em ordem cronológica. A trigger SQL valida a
-      // sequência por (tenant, user) — defesa em profundidade.
+      // Aprovação retroativa: cria as batidas do pedido em ordem cronológica.
+      // source=retroactive_approval isola da regra de sequência do ponto ao vivo
+      // (trigger SQL + app); só a coerência interna do lote é validada na criação.
       if (!existing.retroEntries || existing.retroEntries.length === 0) {
         throw new Error("RETROACTIVE_ENTRIES_REQUIRED");
       }
@@ -3301,6 +3304,11 @@ function oncallShiftToDateRange(shift: OncallShift): { fromDate: string; toDate:
     fromDate: shift.startsAt.slice(0, 10),
     toDate: shift.endsAt.slice(0, 10)
   };
+}
+
+/** Sources de correção/registro administrativo — sem vínculo com ciclo do ponto ao vivo. */
+function isCorrectionTimeEntrySource(source: string): boolean {
+  return source === "admin_manual" || source === "retroactive_approval";
 }
 
 function validateTimeEntrySequence(

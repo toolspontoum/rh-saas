@@ -18,33 +18,46 @@ export function scheduleApplicationResumeAnalysis(tenantId: string, applicationI
 }
 
 /** Reprocessa candidaturas ainda em pending (fila única; o claim no runner evita duplicidade). */
+export async function runResumeAnalysisQueueNow(limit = 5): Promise<number> {
+  let pending: Array<{ tenantId: string; applicationId: string }>;
+  try {
+    pending = await recruitmentRepository.listPendingResumeApplicationsForAi(limit);
+  } catch (err) {
+    console.error("[ai] resume queue list failed", err);
+    return 0;
+  }
+  let processed = 0;
+  for (const row of pending) {
+    try {
+      await runApplicationResumeAnalysis({
+        tenantId: row.tenantId,
+        applicationId: row.applicationId,
+        repository: recruitmentRepository
+      });
+      processed += 1;
+    } catch (err) {
+      console.error("[ai] resume queue item failed", row.applicationId, err);
+    }
+  }
+  return processed;
+}
+
 export function kickResumeAnalysisQueue(): void {
   setImmediate(() => {
-    void (async () => {
-      let pending: Array<{ tenantId: string; applicationId: string }>;
-      try {
-        pending = await recruitmentRepository.listPendingResumeApplicationsForAi(5);
-      } catch (err) {
-        console.error("[ai] resume queue list failed", err);
-        return;
-      }
-      for (const row of pending) {
-        try {
-          await runApplicationResumeAnalysis({
-            tenantId: row.tenantId,
-            applicationId: row.applicationId,
-            repository: recruitmentRepository
-          });
-        } catch (err) {
-          console.error("[ai] resume queue item failed", row.applicationId, err);
-        }
-      }
-    })();
+    void runResumeAnalysisQueueNow(5).catch((err) => console.error("[ai] resume queue", err));
   });
+}
+
+export async function runPayslipAiLinkQueueNow(
+  limit = 5
+): Promise<{ processed: number; requeuedStale: number }> {
+  return payslipAiQueueTick(documentsRepository, { limit });
 }
 
 export function kickPayslipAiLinkQueue(): void {
   setImmediate(() => {
-    void payslipAiQueueTick(documentsRepository).catch((err) => console.error("[ai] payslip queue", err));
+    void payslipAiQueueTick(documentsRepository, { limit: 3 }).catch((err) =>
+      console.error("[ai] payslip queue", err)
+    );
   });
 }

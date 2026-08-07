@@ -11,5 +11,11 @@
     "apps/web/app/api/**": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/v1/jobs/ai-queue-tick",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

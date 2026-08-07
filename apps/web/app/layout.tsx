@@ -1,8 +1,10 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 
+import { PLATFORM_NAME } from "../lib/brand";
+
 export const metadata = {
-  title: "VV Consulting - Web",
+  title: `${PLATFORM_NAME} - Web`,
   description: "Painel operacional"
 };
 

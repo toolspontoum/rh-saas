@@ -238,6 +238,13 @@ const getPayslipBatchDetailSchema = z.object({
   batchId: z.string().uuid()
 });
 
+const requeuePayslipAiBatchSchema = z.object({
+  userId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  companyId: optionalCompanyScope,
+  batchId: z.string().uuid()
+});
+
 export class DocumentsPayslipsHandlers {
   constructor(private readonly service: DocumentsPayslipsService) {}
 
@@ -319,6 +326,11 @@ export class DocumentsPayslipsHandlers {
   async getPayslipBatchDetail(input: unknown) {
     const payload = getPayslipBatchDetailSchema.parse(input);
     return this.service.getPayslipBatchDetail(payload);
+  }
+
+  async requeuePayslipAiBatch(input: unknown) {
+    const payload = requeuePayslipAiBatchSchema.parse(input);
+    return this.service.requeuePayslipAiBatch(payload);
   }
 
   async importPayslipsCsv(input: unknown) {

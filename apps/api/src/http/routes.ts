@@ -885,6 +885,25 @@ apiRouter.get("/v1/tenants/:tenantId/payslips/batches/:batchId", requireAuth, as
   }
 });
 
+apiRouter.post(
+  "/v1/tenants/:tenantId/payslips/batches/:batchId/requeue-ai",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const result = await documentsPayslipsHandlers.requeuePayslipAiBatch({
+        tenantId: req.params.tenantId,
+        userId: (req as AuthenticatedRequest).auth.userId,
+        companyId: getTenantCompanyId(req),
+        batchId: req.params.batchId
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      const parsed = toHttpError(error);
+      return res.status(parsed.status).json({ error: parsed.code, message: parsed.message });
+    }
+  }
+);
+
 apiRouter.post("/v1/tenants/:tenantId/payslips/import-csv", requireAuth, async (req, res) => {
   try {
     const result = await documentsPayslipsHandlers.importPayslipsCsv({

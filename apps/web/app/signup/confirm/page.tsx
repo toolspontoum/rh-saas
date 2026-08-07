@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { apiFetch } from "../../../lib/api";
 import { setToken } from "../../../lib/auth";
+import { PLATFORM_NAME, PLATFORM_TAGLINE } from "../../../lib/brand";
 import { supabase } from "../../../lib/supabase";
 
 type TenantSummary = {
@@ -171,8 +172,8 @@ export default function ConfirmSignupPage() {
       </section>
 
       <section className="auth-right">
-        <div className="auth-brand-mark">VV Consulting</div>
-        <p className="auth-brand-subtitle">Gestao de pessoas, operacao e recrutamento em um unico ecossistema.</p>
+        <div className="auth-brand-mark">{PLATFORM_NAME}</div>
+        <p className="auth-brand-subtitle">{PLATFORM_TAGLINE}</p>
         <div className="auth-visual" />
       </section>
     </main>
