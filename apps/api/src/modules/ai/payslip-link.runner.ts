@@ -41,7 +41,7 @@ export async function runPayslipAiLink(input: {
     .eq("tenant_id", tenantId)
     .eq("id", payslipId)
     .eq("ai_link_status", "queued")
-    .select("id, file_path, company_id")
+    .select("id, file_path, company_id, extracted_cpf")
     .maybeSingle();
 
   if (claimError) throw claimError;
@@ -76,6 +76,33 @@ export async function runPayslipAiLink(input: {
         extractedCpf: null
       });
       return;
+    }
+
+    // Reprocessamento: se já houver CPF extraído, tenta vincular antes de reabrir o PDF.
+    const priorDigits = normalizeCpfDigits(
+      (claim as { extracted_cpf?: string | null }).extracted_cpf ?? null
+    );
+    if (priorDigits) {
+      const priorEmployee = await repository.findEmployeeContextByCpf(
+        tenantId,
+        companyId,
+        priorDigits
+      );
+      if (priorEmployee) {
+        const email =
+          priorEmployee.personalEmail?.trim().toLowerCase() ||
+          (priorEmployee.authEmail ? priorEmployee.authEmail.trim().toLowerCase() : "") ||
+          `sem-email-${priorEmployee.userId.slice(0, 8)}@colaborador.placeholder`;
+        await repository.updatePayslipLinkedEmployee({
+          tenantId,
+          payslipId,
+          employeeUserId: priorEmployee.userId,
+          collaboratorName: priorEmployee.fullName?.trim() || "Colaborador",
+          collaboratorEmail: email,
+          extractedCpf: priorDigits
+        });
+        return;
+      }
     }
 
     const buf = Buffer.from(await file.arrayBuffer());
