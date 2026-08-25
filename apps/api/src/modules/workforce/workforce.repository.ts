@@ -238,6 +238,7 @@ type TenantWorkRuleRow = {
 type TimeReportClosureRow = {
   id: string;
   tenant_id: string;
+  company_id: string | null;
   user_id: string;
   user_name: string | null;
   user_cpf: string | null;
@@ -613,6 +614,7 @@ const mapTimeReportClosureEntry = (row: Record<string, unknown>): TimeReportClos
 const mapTimeReportClosure = (row: TimeReportClosureRow): TimeReportClosure => ({
   id: row.id,
   tenantId: row.tenant_id,
+  companyId: row.company_id ?? null,
   userId: row.user_id,
   userName: row.user_name,
   userCpf: row.user_cpf,
@@ -2982,6 +2984,7 @@ export class WorkforceRepository {
 
   async listTimeReportClosures(input: {
     tenantId: string;
+    companyId?: string | null;
     userId?: string;
     referenceMonth?: string;
     page: number;
@@ -2993,6 +2996,7 @@ export class WorkforceRepository {
         .select("*")
         .eq("tenant_id", input.tenantId)
         .order("closed_at", { ascending: false });
+      query = withCompany(query, input.companyId);
       if (input.userId) query = query.eq("user_id", input.userId);
       if (input.referenceMonth) query = query.eq("reference_month", input.referenceMonth);
       const offset = (input.page - 1) * input.pageSize;
@@ -3012,14 +3016,16 @@ export class WorkforceRepository {
   async getTimeReportClosureById(input: {
     tenantId: string;
     closureId: string;
+    companyId?: string | null;
   }): Promise<TimeReportClosure | null> {
     try {
-      const { data, error } = await this.db
+      let query = this.db
         .from("time_report_closures")
         .select("*")
         .eq("tenant_id", input.tenantId)
-        .eq("id", input.closureId)
-        .maybeSingle();
+        .eq("id", input.closureId);
+      query = withCompany(query, input.companyId);
+      const { data, error } = await query.maybeSingle();
       if (error) throw error;
       if (!data) return null;
       return mapTimeReportClosure(data as TimeReportClosureRow);

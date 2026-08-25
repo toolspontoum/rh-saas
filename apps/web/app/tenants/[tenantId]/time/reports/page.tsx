@@ -70,7 +70,7 @@ export default function TimeReportsPage() {
           <label>
             Buscar por nome, CPF ou e-mail
             <input
-              placeholder="Ex.: Roberto, 32576394817 ou roberto@email.com"
+              placeholder="Ex.: Maria, 52998224725 ou maria@email.com"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />

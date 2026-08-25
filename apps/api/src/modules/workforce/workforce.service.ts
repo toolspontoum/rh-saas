@@ -2486,6 +2486,7 @@ export class WorkforceService {
   async listTimeReportClosures(input: {
     tenantId: string;
     userId: string;
+    companyId?: string | null;
     targetUserId?: string;
     referenceMonth?: string;
     page: number;
@@ -2498,8 +2499,14 @@ export class WorkforceService {
       "analyst",
       "preposto"
     ]);
+    const companyId = await this.resolveListCompanyId({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId ?? null
+    });
     return this.repository.listTimeReportClosures({
       tenantId: input.tenantId,
+      companyId,
       userId: input.targetUserId,
       referenceMonth: input.referenceMonth,
       page: input.page,
@@ -2510,6 +2517,7 @@ export class WorkforceService {
   async getTimeReportClosure(input: {
     tenantId: string;
     userId: string;
+    companyId?: string | null;
     closureId: string;
   }): Promise<TimeReportClosure> {
     await this.authTenantService.assertUserHasAnyRole(input.userId, input.tenantId, [
@@ -2519,9 +2527,15 @@ export class WorkforceService {
       "analyst",
       "preposto"
     ]);
+    const companyId = await this.resolveListCompanyId({
+      tenantId: input.tenantId,
+      userId: input.userId,
+      companyId: input.companyId ?? null
+    });
     const closure = await this.repository.getTimeReportClosureById({
       tenantId: input.tenantId,
-      closureId: input.closureId
+      closureId: input.closureId,
+      companyId
     });
     if (!closure) throw new Error("TIME_REPORT_CLOSURE_NOT_FOUND");
     return closure;
@@ -2530,6 +2544,7 @@ export class WorkforceService {
   async getTimeReportClosurePdf(input: {
     tenantId: string;
     userId: string;
+    companyId?: string | null;
     closureId: string;
   }): Promise<{ fileName: string; base64: string }> {
     const closure = await this.getTimeReportClosure(input);
